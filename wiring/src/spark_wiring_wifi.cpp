@@ -37,7 +37,7 @@ namespace spark {
     class APArrayPopulator
     {
         WiFiAccessPoint* results;
-
+    
         int index;
 
         void addResult(WiFiAccessPoint* result) {
@@ -95,7 +95,7 @@ namespace spark {
     int8_t WiFiClass::RSSI() {
         if (!network_ready(*this, 0, NULL))
             return 0;
-
+        
         system_tick_t _functionStart = millis();
         while ((millis() - _functionStart) < 1000) {
             int rv = wlan_connected_rssi();
@@ -129,6 +129,13 @@ the same way.
 
     WiFiClass WiFi;
     NetworkClass& Network = WiFi;
+
+
+#if Wiring_WiFiAP
+    WiFiAPClass AP;
+#endif
+
+
 }
 
 #endif

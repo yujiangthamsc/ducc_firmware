@@ -14,7 +14,7 @@
 
   You should have received a copy of the GNU Lesser General Public
   License along with this program; if not, see <http://www.gnu.org/licenses/>.
-  ******************************************************************************
+ ******************************************************************************
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -160,7 +160,7 @@ int tinkerAnalogRead(String pin)
     //convert ascii to integer
     int pinNumber = pin.charAt(1) - '0';
     //Sanity check to see if the pin numbers are within limits
-    if (pinNumber < 0 || pinNumber > 7) return -1;
+    if (pinNumber< 0 || pinNumber >7) return -1;
 
     if(pin.startsWith("D"))
     {

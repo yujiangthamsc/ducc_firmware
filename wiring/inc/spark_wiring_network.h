@@ -27,6 +27,7 @@
 #define __SPARK_WIRING_NETWORK_H
 
 #include "spark_wiring_ipaddress.h"
+#include "system_network.h"
 
 namespace spark {
 
@@ -40,29 +41,24 @@ extern NetworkClass& Network;
 class NetworkClass
 {
 public:
-    uint8_t* macAddress(uint8_t* mac) __attribute__((deprecated("Please use WiFi.macAddress() instead")));
-    IPAddress localIP() __attribute__((deprecated("Please use WiFi.localIP() instead")));
-    IPAddress subnetMask() __attribute__((deprecated("Please use WiFi.subnetMask() instead")));
-    IPAddress gatewayIP() __attribute__((deprecated("Please use WiFi.gatewayIP() instead")));
-    char* SSID() __attribute__((deprecated("Please use WiFi.SSID() instead")));
-    int8_t RSSI() __attribute__((deprecated("Please use WiFi.RSSI() instead")));
-    uint32_t ping(IPAddress remoteIP) __attribute__((deprecated("Please use WiFi.ping() instead")));
-    uint32_t ping(IPAddress remoteIP, uint8_t nTries) __attribute__((deprecated("Please use WiFi.ping() instead")));
+    bool ready(void) {
+        return network_ready(*this, 0, nullptr);
+    }
 
-    static void connect(void) __attribute__((deprecated("Please use WiFi.connect() instead")));
-    static void disconnect(void) __attribute__((deprecated("Please use WiFi.disconnect() instead")));
-    static bool connecting(void) __attribute__((deprecated("Please use WiFi.connecting() instead")));
-    virtual bool ready(void)=0;
+    void on(void) {
+        network_on(*this, 0, 0, nullptr);
+    }
+
+    void off(void) {
+        network_off(*this, 0, 0, nullptr);
+    }
 
     operator network_interface_t() {
         return 0;   // the default
     }
 
 
-    static NetworkClass& from(network_interface_t nif) {
-        // hard-code for now until multiple-networks are implemented.
-        return Network;
-    }
+    static NetworkClass& from(network_interface_t nif);
 };
 
 

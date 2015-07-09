@@ -47,12 +47,82 @@ enum SecurityType {
     WPA2 = WLAN_SEC_WPA2
 };
 
-class WiFiClass : public NetworkClass
+class WiFiCommon : public NetworkClass
 {
-    void setIPAddressSource(IPAddressSource source) {
-        wlan_set_ipaddress_source(source, true, NULL);
+public:
+
+   void setCredentials(const char *ssid) {
+        setCredentials(ssid, NULL, UNSEC);
     }
 
+    void setCredentials(const char *ssid, const char *password) {
+        setCredentials(ssid, password, WPA2);
+    }
+
+    void setCredentials(const char *ssid, const char *password, unsigned long security, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
+        setCredentials(ssid, strlen(ssid), password, strlen(password), security, cipher);
+    }
+
+    void setCredentials(const char *ssid, unsigned int ssidLen, const char *password,
+            unsigned int passwordLen, unsigned long security=WLAN_SEC_UNSEC, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
+
+        WLanCredentials creds;
+        memset(&creds, 0, sizeof(creds));
+        creds.size = sizeof(creds);
+        creds.ssid = ssid;
+        creds.ssid_len = ssidLen;
+        creds.password = password;
+        creds.password_len = passwordLen;
+        creds.security = WLanSecurityType(security);
+        creds.cipher = WLanSecurityCipher(cipher);
+        network_set_credentials(*this, 0, &creds, NULL);
+    }
+    
+    bool hasCredentials(void) {
+        return network_has_credentials(*this, 0, NULL);
+    }
+
+    bool clearCredentials(void) {
+        return network_clear_credentials(*this, 0, NULL, NULL);
+    }
+
+    uint32_t ping(IPAddress remoteIP) {
+        return ping(remoteIP, 5);
+    }
+
+    uint32_t ping(IPAddress remoteIP, uint8_t nTries) {
+        return inet_ping(&remoteIP.raw(), *this, nTries, NULL);
+    }
+
+    void connect(unsigned flags=0) {
+        network_connect(*this, flags, 0, NULL);
+    }
+
+    void disconnect(void) {
+        network_disconnect(*this, 0, NULL);
+    }
+
+    bool connecting(void) {
+        return network_connecting(*this, 0, NULL);
+    }
+
+    void listen(bool begin=true) {
+        network_listen(*this, begin ? 0 : 1, NULL);
+    }
+
+    bool listening(void) {
+        return network_listening(*this, 0, NULL);
+    }
+	
+    int getCredentials(WiFiAccessPoint* results, size_t result_count);
+
+};
+
+class WiFiClass : public WiFiCommon
+{
+	void setIPAddressSource(IPAddressSource source) {
+        wlan_set_ipaddress_source(source, true, NULL);
+	}
 public:
     WiFiClass() {}
     ~WiFiClass() {}
@@ -105,80 +175,6 @@ public:
     }
 
     int8_t RSSI();
-    uint32_t ping(IPAddress remoteIP) {
-        return ping(remoteIP, 5);
-    }
-
-    uint32_t ping(IPAddress remoteIP, uint8_t nTries) {
-        return inet_ping(&remoteIP.raw(), *this, nTries, NULL);
-    }
-
-    void connect(unsigned flags=0) {
-        network_connect(*this, flags, 0, NULL);
-    }
-
-    void disconnect(void) {
-        network_disconnect(*this, 0, NULL);
-    }
-
-    bool connecting(void) {
-        return network_connecting(*this, 0, NULL);
-    }
-
-    bool ready(void) {
-        return network_ready(*this, 0, NULL);
-    }
-
-    void on(void) {
-        network_on(*this, 0, 0, NULL);
-    }
-
-    void off(void) {
-        network_off(*this, 0, 0, NULL);
-    }
-
-    void listen(bool begin=true) {
-        network_listen(*this, begin ? 0 : 1, NULL);
-    }
-
-    bool listening(void) {
-        return network_listening(*this, 0, NULL);
-    }
-
-    void setCredentials(const char *ssid) {
-        setCredentials(ssid, NULL, UNSEC);
-    }
-
-    void setCredentials(const char *ssid, const char *password) {
-        setCredentials(ssid, password, WPA2);
-    }
-
-    void setCredentials(const char *ssid, const char *password, unsigned long security, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
-        setCredentials(ssid, strlen(ssid), password, strlen(password), security, cipher);
-    }
-
-    void setCredentials(const char *ssid, unsigned int ssidLen, const char *password,
-            unsigned int passwordLen, unsigned long security=WLAN_SEC_UNSEC, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
-
-        WLanCredentials creds;
-        memset(&creds, 0, sizeof(creds));
-        creds.size = sizeof(creds);
-        creds.ssid = ssid;
-        creds.ssid_len = ssidLen;
-        creds.password = password;
-        creds.password_len = passwordLen;
-        creds.security = WLanSecurityType(security);
-        creds.cipher = WLanSecurityCipher(cipher);
-        network_set_credentials(*this, 0, &creds, NULL);
-    }
-
-    bool hasCredentials(void) {
-        return network_has_credentials(*this, 0, NULL);
-    }
-
-    bool clearCredentials(void) {
-        return network_clear_credentials(*this, 0, NULL, NULL);
-    }
 
     int selectAntenna(WLanSelectAntenna_TypeDef antenna) {
         return wlan_select_antenna(antenna);
@@ -218,12 +214,30 @@ public:
         return scan((wlan_scan_result_t)handler, (void*)instance);
     }
 
-    int getCredentials(WiFiAccessPoint* results, size_t result_count);
 };
 
 extern WiFiClass WiFi;
 
+#if Wiring_WiFi_AP
+class WiFiAPClass : public WiFiCommon
+{
+
+    operator network_handle_t() {
+        return 1;
+    }
+
+    void set
+
+};
+
+extern WiFiAPClass AP;
+
+
+#endif      // Wiring_WiFi_AP
+
+
 }   // namespace Spark
+
 
 #endif // Wiring_WiFi
 

@@ -4,9 +4,18 @@
 #include "inet_hal.h"
 
 /**
- *  This header file maps platform ID to compile-time switches for the Wiring API.
+ * These symbols are always defined. The value is either 0 or 1 to indicate if the feature is supported.
+ *
+ * Wiring_WiFi          - platforms that support WiFi
+ * Wiring_WiFi_AP       - platforms that support SoftAP mode
+ * Wiring_IPv6          - platforms that support IPv6
+ * Wiring_SPI1          - platforms that support a 2nd SPI interface
  */
 
+/**
+ *  This header file maps platform ID to compile-time switches for the Wiring API.
+ */        
+   
 // This is my code (mdma), but on second thoughts I feel this should be driven bottom up for
 // components of the platform. (I.e. platform  defines comes from the HAL)
 
@@ -15,55 +24,57 @@
 #define Wiring_WiFi 1
 #define Wiring_IPv6 0
 #define Wiring_Serial2 1
-#endif
+#endif    
 
 #if PLATFORM_ID==1      // unused
 #error Unkonwn platform ID
-#endif
+#endif    
 
 #if PLATFORM_ID==3      // gcc
 #define Wiring_WiFi 1
 #define Wiring_IPv6 0
 #define Wiring_SPI1 1
-#endif
+#endif    
 
 #if PLATFORM_ID==4      // photon dev
 #define Wiring_WiFi 1
 #define Wiring_IPv6 1
 #define Wiring_SPI1 1
-#endif
+#endif    
 
-#if PLATFORM_ID==5
+#if PLATFORM_ID==5      
 #define Wiring_WiFi 1
 #define Wiring_IPv6 1
 #define Wiring_SPI1 1
 #define Wiring_Serial2 1
-#endif
+#endif    
 
 #if PLATFORM_ID==6      // photon
 #define Wiring_WiFi 1
 #define Wiring_IPv6 1
 #define Wiring_SPI1 1
 #define Wiring_Serial2 1
-#endif
+#define Wiring_WiFi_AP 1
+#endif    
 
-#if PLATFORM_ID==7
+#if PLATFORM_ID==7      
 #define Wiring_WiFi 1
 #define Wiring_IPv6 1
 #define Wiring_SPI1 1
 #define Wiring_Serial2 1
-#endif
-
+#endif    
+        
 #if PLATFORM_ID==8      // P1 / bm14
 #define Wiring_WiFi 1
 #define Wiring_IPv6 1
 #define Wiring_SPI1 1
 #define Wiring_Serial2 1
-#endif
-
+#define Wiring_WiFi_AP 1
+#endif    
+    
 #if PLATFORM_ID==9      // ethernet
 #define Wiring_IPv6 1
-#endif
+#endif    
 
 #if PLATFORM_ID==10      // electron
 #define Wiring_Cellular 1
@@ -86,7 +97,7 @@
 #ifndef Wiring_SPI2
 #define Wiring_SPI2 0
 #endif
-
+    
 #ifndef Wiring_Wire1
 #define Wiring_Wire1 0
 #endif
@@ -121,6 +132,10 @@
 
 #ifndef Wiring_SetupButtonUX
 #define Wiring_SetupButtonUX 0
+#endif
+
+#ifndef Wiring_WiFi_AP
+#define Wiring_WiFi_AP 0
 #endif
 
 #endif	/* SPARK_WIRING_PLATFORM_H */
