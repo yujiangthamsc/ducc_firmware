@@ -187,7 +187,8 @@ STM32_Pin_Info* HAL_Pin_Map(void);
 #define RTS_UC      40
 #define PWR_UC      41
 #define RESET_UC    42
-#define LVLOE_UC    43
+#define LVLOE_UC #error "This version of firmware assumes you have v016 electron hardware, /LVLOE_UC was replaced with DTR_UC for low power mode. Do not control LVLOE_UC directly!"
+#define DTR_UC      43
 #define PM_SDA_UC   44
 #define PM_SCL_UC   45
 #define LOW_BAT_UC  46
