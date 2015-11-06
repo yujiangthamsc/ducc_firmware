@@ -71,11 +71,6 @@ void ElectronSerialPipe::begin(unsigned int baud)
     //HAL_USART_Begin(HAL_USART_SERIAL3, baud);
     USART_DeInit(USART3);
 
-#if USE_USART3_HARDWARE_FLOW_CONTROL_RTS_CTS
-    // Configure USART RTS and CTS as alternate function push-pull
-    HAL_Pin_Mode(RTS_UC, AF_OUTPUT_PUSHPULL);
-    HAL_Pin_Mode(CTS_UC, AF_OUTPUT_PUSHPULL);
-#endif
     // Configure USART Rx and Tx as alternate function push-pull, and enable GPIOA clock
     HAL_Pin_Mode(RXD_UC, AF_OUTPUT_PUSHPULL);
     HAL_Pin_Mode(TXD_UC, AF_OUTPUT_PUSHPULL);

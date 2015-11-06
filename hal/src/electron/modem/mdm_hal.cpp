@@ -173,6 +173,9 @@ int MDMParser::send(const char* buf, int len)
         dumpAtCmd(buf,len);
     }
 #endif
+    HAL_GPIO_Write(LVLOE_UC, 0);    // LOW on DTR disables low-power mode / wakes up modem
+    HAL_Delay_Milliseconds(20);     // Wait for wake up time to expire.  We could poll
+                                    // CTS for a LOW level if it were not set to Alternate Function.
     return _send(buf, len);
 }
 
@@ -290,6 +293,10 @@ int MDMParser::waitFinalResp(_CALLBACKPTR cb /* = NULL*/,
                     }
                 }
             } // end ==TYPE_PLUS
+
+            /* Re-enable low power mode before returning */
+            HAL_GPIO_Write(LVLOE_UC, 1);
+
             if (cb) {
                 int len = LENGTH(ret);
                 int ret = cb(type, buf, len, param);
@@ -309,7 +316,8 @@ int MDMParser::waitFinalResp(_CALLBACKPTR cb /* = NULL*/,
         HAL_Delay_Milliseconds(10);
     }
     while (!TIMEOUT(start, timeout_ms) && !_cancel_all_operations);
-    //_cancel_all_operations = false; // ensure we don't block future commands.
+    /* Re-enable low power mode before returning */
+    HAL_GPIO_Write(LVLOE_UC, 1);
     return WAIT;
 }
 
@@ -385,13 +393,16 @@ bool MDMParser::powerOn(const char* simpin)
 
 #if USE_USART3_HARDWARE_FLOW_CONTROL_RTS_CTS
     _dev.lpm = LPM_ENABLED;
+    HAL_Pin_Mode(LVLOE_UC, OUTPUT); // THIS IS NOW HOOKED TO DTR_UC on v016 HARDWARE!!
+    HAL_GPIO_Write(LVLOE_UC, 0);    // LOW on DTR disables low-power mode / wakes up modem,
+                                    // HIGH allows low-power mode.
 #else
     HAL_Pin_Mode(RTS_UC, OUTPUT);
     HAL_GPIO_Write(RTS_UC, 0); // VERY IMPORTANT FOR CORRECT OPERATION W/O HW FLOW CONTROL!!
 #endif
 
-    HAL_Pin_Mode(LVLOE_UC, OUTPUT);
-    HAL_GPIO_Write(LVLOE_UC, 0);
+    HAL_Pin_Mode(LVLOE_UC, OUTPUT); // THIS IS NOW HOOKED TO DTR_UC on v016 HARDWARE!!
+    HAL_GPIO_Write(LVLOE_UC, 0);    // FOR NOW JUST SET LOW, WITHOUT LOW-POWER MODE ENABLED
 
     if (!_init) {
         MDM_INFO("[ ElectronSerialPipe::begin ] = = = = = = = =");
@@ -545,10 +556,11 @@ bool MDMParser::init(DevStatus* status)
     // enable power saving
     if (_dev.lpm != LPM_DISABLED) {
          // enable power saving (requires flow control, cts at least)
-        sendFormated("AT+UPSV=1\r\n");
+        sendFormated("AT+UPSV=3\r\n");
         if (RESP_OK != waitFinalResp())
             goto failure;
         _dev.lpm = LPM_ACTIVE;
+        HAL_GPIO_Write(LVLOE_UC, 1);    // LOW diables, HIGH allows low-power mode
     }
     // setup the GPRS network registration URC (Unsolicited Response Code)
     // 0: (default value and factory-programmed value): network registration URC disabled
