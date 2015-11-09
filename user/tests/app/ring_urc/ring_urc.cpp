@@ -37,7 +37,7 @@ void setup()
 {
   delay(4000);
 
-	DEBUG_D("Hello from the Electron! Boot time is: %10.3f\r\n ms", millis()*0.001);
+	DEBUG_D("Hello from the Electron! Boot time is: %-10.3f\r\n ms", millis()*0.001);
 
 	Particle.connect(); // blocking call to connect
   startTime = now;
@@ -46,12 +46,12 @@ void setup()
 void loop()
 {
 	if (now - startTime > 60000UL) {
-    DEBUG_D("Going to sleep now! Time: %10.3f\r\n", millis()*0.001);
+    DEBUG_D("Going to sleep now! Time: %-10.3f\r\n", millis()*0.001);
     delay(100);
     System.sleep(RI_UC, FALLING);
     // System consumes about 18mA while STM32 in stop mode and modem still powered on but idle.
     delay(100);
-    DEBUG_D("Awake again! Time: %10.3f\r\n", millis()*0.001);
+    DEBUG_D("Awake again! Time: %-10.3f\r\n", millis()*0.001);
     startTime = now;
   }
 }
