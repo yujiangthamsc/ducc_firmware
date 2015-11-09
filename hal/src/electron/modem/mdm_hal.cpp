@@ -392,6 +392,7 @@ bool MDMParser::powerOn(const char* simpin)
 
     HAL_Pin_Mode(LVLOE_UC, OUTPUT);
     HAL_GPIO_Write(LVLOE_UC, 0);
+    HAL_Pin_Mode(RI_UC, INPUT);
 
     if (!_init) {
         MDM_INFO("[ ElectronSerialPipe::begin ] = = = = = = = =");
@@ -453,7 +454,19 @@ bool MDMParser::powerOn(const char* simpin)
     if(RESP_OK != waitFinalResp())
         goto failure;
     // Configures sending of URCs from MT to DTE for indications
-    sendFormated("AT+CMER=1,0,0,2,1\r\n");
+    sendFormated("AT+CMER=2,0,0,2,1\r\n");
+    if(RESP_OK != waitFinalResp())
+        goto failure;
+    // Configure Auto Answer after 1 RI_UC pin (RING line) indication (LOW)
+    sendFormated("ATS0=1\r\n");
+    if(RESP_OK != waitFinalResp())
+        goto failure;
+    // Configure RI_UC pin (RING line) to toggle LOW on URCs (later configure for all incoming data as well)
+    // 0 (factory-programmed value): feature disabled (RING line is asserted only on incoming call and incoming SMS)
+    // 1: RING line asserted for all the URCs
+    // 2: RING line asserted for all the incoming data (PPP, Direct Link, sockets, FTP)
+    // 3: RING line asserted for all URCs and all incoming data (PPP, Direct Link, sockets, FTP)
+    sendFormated("AT+URING=1\r\n");
     if(RESP_OK != waitFinalResp())
         goto failure;
     // set baud rate
@@ -545,7 +558,7 @@ bool MDMParser::init(DevStatus* status)
     // enable power saving
     if (_dev.lpm != LPM_DISABLED) {
          // enable power saving (requires flow control, cts at least)
-        sendFormated("AT+UPSV=1\r\n");
+        sendFormated("AT+UPSV=0\r\n");
         if (RESP_OK != waitFinalResp())
             goto failure;
         _dev.lpm = LPM_ACTIVE;
@@ -618,6 +631,7 @@ bool MDMParser::powerOff(void)
     }
     HAL_Pin_Mode(PWR_UC, INPUT);
     HAL_Pin_Mode(RESET_UC, INPUT);
+    HAL_Pin_Mode(RI_UC, INPUT);
 #if USE_USART3_HARDWARE_FLOW_CONTROL_RTS_CTS
 #else
     HAL_Pin_Mode(RTS_UC, INPUT);
