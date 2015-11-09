@@ -205,7 +205,7 @@ bool SparkProtocol::event_loop(void)
       }
       else
       {
-        if (15000 < millis_since_last_message)
+        if (60000 < millis_since_last_message)
         {
           queue[0] = 0;
           queue[1] = 16;

@@ -813,7 +813,7 @@ void Multicast_Presence_Announcement(void)
 #endif
 }
 
-const int SYSTEM_CLOUD_TIMEOUT = 15*1000;
+const int SYSTEM_CLOUD_TIMEOUT = 60*1000;
 
 bool system_cloud_active()
 {
