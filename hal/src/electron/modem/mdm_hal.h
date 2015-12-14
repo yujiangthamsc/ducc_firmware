@@ -103,6 +103,11 @@ public:
     */
     bool getSignalStrength(NetStatus &status);
 
+    /** checks GPRS attached status
+        \return true if attached, false otherwise
+    */
+    bool getGPRSattached(void);
+
     /** Power off the MT, This function has to be called prior to
         switching off the supply.
         \return true if successfully, false otherwise
@@ -502,6 +507,7 @@ protected:
     bool _pwr;
     bool _activated;
     bool _attached;
+    bool _gprs_attached;
     volatile bool _cancel_all_operations;
 #ifdef MDM_DEBUG
     int _debugLevel;

@@ -25,6 +25,7 @@
 #include <string.h>
 #include "net_hal.h"
 #include "wlan_hal.h"
+#include "modem/enums_hal.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,7 +70,7 @@ typedef struct CellularCredentials CellularCredentials;
 /**
  * Wait for the cellular module to register on the GSM network.
  */
-cellular_result_t  cellular_register(void* reserved);
+cellular_result_t  cellular_register(NetStatus *status, void* reserved);
 
 /**
  * Activate the PDP context
@@ -160,6 +161,8 @@ cellular_result_t cellular_signal(CellularSignalHal &signal, void* reserved);
  */
 cellular_result_t cellular_command(_CALLBACKPTR_MDM cb, void* param,
                          system_tick_t timeout_ms, const char* format, ...);
+
+cellular_result_t cellular_gprs_attached_get(void* reserved);
 
 #ifdef __cplusplus
 }

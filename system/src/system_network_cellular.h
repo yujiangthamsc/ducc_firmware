@@ -49,7 +49,7 @@ protected:
         result = cellular_init(NULL);
         if (result) return;
 
-        result = cellular_register(NULL);
+        result = cellular_register(NULL, NULL);
         if (result) return;
 
         CellularCredentials* savedCreds;

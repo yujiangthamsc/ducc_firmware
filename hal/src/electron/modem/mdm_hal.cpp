@@ -145,6 +145,7 @@ MDMParser::MDMParser(void)
     _pwr       = false;
     _activated = false;
     _attached  = false;
+    _gprs_attached  = false;
     _cancel_all_operations = false;
     memset(_sockets, 0, sizeof(_sockets));
     for (int socket = 0; socket < NUMSOCKETS; socket ++)
@@ -226,9 +227,22 @@ int MDMParser::waitFinalResp(_CALLBACKPTR cb /* = NULL*/,
 
                 // SMS Command ---------------------------------
                 // +CNMI: <mem>,<index>
+                /*
                 if (sscanf(cmd, "CMTI: \"%*[^\"]\",%d", &a) == 1) {
                     DEBUG_D("New SMS at index %d\r\n", a);
-                // Socket Specific Command ---------------------------------
+                }
+                */
+                // if ((sscanf(cmd, "CIEV: %d,%d", &a, &b) == 2)) {
+                if ((sscanf(cmd, "CIEV: 9,%d", &a) == 1)) {
+                    DEBUG_D("CIEV matched: 9,%d\r\n", a);
+                    _gprs_attached = a;
+                    // //Get local IP address
+                    // sendFormated("AT+UPSND=" PROFILE ",0\r\n");
+                // +UPSND=<profile_id>,<param_tag>[,<dynamic_param_val>]
+                    // } else if (sscanf(buf, "\r\n+UPSND: " PROFILE ",0,\"" IPSTR "\"", &a,&b,&c,&d) == 4) {
+                    //     _ip = IPADR(a,b,c,d);
+                    //     DEBUG_D("IP: " IPSTR "\r\n", IPNUM(_ip));
+                    // // Socket Specific Command ---------------------------------
                 // +UUSORD: <socket>,<length>
                 } else if ((sscanf(cmd, "UUSORD: %d,%d", &a, &b) == 2)) {
                     int socket = _findSocket(a);
@@ -481,6 +495,10 @@ bool MDMParser::powerOn(const char* simpin)
 
     // check the sim card
     for (int i = 0; (i < 5) && (_dev.sim != SIM_READY) && !_cancel_all_operations; i++) {
+        if (i == 3) {
+            HAL_GPIO_Write(RESET_UC, 0); HAL_Delay_Milliseconds(50);
+            HAL_GPIO_Write(RESET_UC, 1); HAL_Delay_Milliseconds(10);
+        }
         sendFormated("AT+CPIN?\r\n");
         int ret = waitFinalResp(_cbCPIN, &_dev.sim);
         // having an error here is ok (sim may still be initializing)
@@ -759,6 +777,11 @@ bool MDMParser::getSignalStrength(NetStatus &status)
     }
     UNLOCK();
     return ok;
+}
+
+bool MDMParser::getGPRSattached(void)
+{
+    return _gprs_attached;
 }
 
 int MDMParser::_cbCOPS(int type, const char* buf, int len, NetStatus* status)

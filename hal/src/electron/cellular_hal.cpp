@@ -24,9 +24,9 @@ cellular_result_t  cellular_off(void* reserved)
     return 0;
 }
 
-cellular_result_t  cellular_register(void* reserved)
+cellular_result_t  cellular_register(NetStatus *status, void* reserved)
 {
-    CHECK_SUCCESS(electronMDM.registerNet());
+    CHECK_SUCCESS(electronMDM.registerNet(status));
     return 0;
 }
 
@@ -137,3 +137,9 @@ cellular_result_t cellular_command(_CALLBACKPTR_MDM cb, void* param,
 
     return electronMDM.waitFinalResp((MDMParser::_CALLBACKPTR)cb, (void*)param, timeout_ms);
 }
+
+cellular_result_t cellular_gprs_attached_get(void* reserved)
+{
+    return electronMDM.getGPRSattached();
+}
+
