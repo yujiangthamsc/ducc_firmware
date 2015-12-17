@@ -235,7 +235,7 @@ int MDMParser::waitFinalResp(_CALLBACKPTR cb /* = NULL*/,
                 // if ((sscanf(cmd, "CIEV: %d,%d", &a, &b) == 2)) {
                 if ((sscanf(cmd, "CIEV: 9,%d", &a) == 1)) {
                     DEBUG_D("CIEV matched: 9,%d\r\n", a);
-                    _gprs_attached = a;
+                    _gprs_attached = (a==2)?1:0;
                     // //Get local IP address
                     // sendFormated("AT+UPSND=" PROFILE ",0\r\n");
                 // +UPSND=<profile_id>,<param_tag>[,<dynamic_param_val>]
