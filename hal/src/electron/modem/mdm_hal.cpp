@@ -77,7 +77,7 @@ void dumpAtCmd(const char* buf, int len)
     DEBUG_D(" %3d \"", len);
     while (len --) {
         char ch = *buf++;
-        if ((ch > 0x1F) && (ch != 0x7F)) { // is printable
+        if ((ch > 0x1F) && (ch < 0x7F)) { // is printable
             if      (ch == '%')  DEBUG_D("%%");
             else if (ch == '"')  DEBUG_D("\\\"");
             else if (ch == '\\') DEBUG_D("\\\\");
@@ -470,6 +470,19 @@ bool MDMParser::powerOn(const char* simpin)
         goto failure;
     // Configures sending of URCs from MT to DTE for indications
     sendFormated("AT+CMER=1,0,0,2,1\r\n");
+    if(RESP_OK != waitFinalResp())
+        goto failure;
+    /*
+     * Configures GPRS event reporting URCs from MT to DTE
+     *
+     * +CGEV: NW DEACT <PDP_type>,<PDP_addr>,[<cid>] - The network has forced a context deactivation.
+     * +CGEV: ME DEACT <PDP_type>,<PDP_addr>,[<cid>] - The MT has forced a context deactivation.
+     * +CGEV: NW DETACH - The network has forced a GPRS detach
+     * +CGEV: ME DETACH - The mobile station has forced a GPRS detach
+     * +CGEV: NW CLASS <class> - The network has forced a change of MT class (e.g. due to service detach); the highest available class is reported
+     * +CGEV: ME CLASS <class> - The mobile station has forced a change of MT class; the highest available class is reported
+     */
+    sendFormated("AT+CGEREP=2,1\r\n");
     if(RESP_OK != waitFinalResp())
         goto failure;
     // set baud rate
