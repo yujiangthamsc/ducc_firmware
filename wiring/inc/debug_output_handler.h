@@ -22,41 +22,50 @@
 
 #include "spark_wiring_usartserial.h"
 #include "spark_wiring_usbserial.h"
-#include "service_debug.h"
-#include "delay_hal.h"
+#include "spark_wiring_logging.h"
 
-struct SerialDebugOutput
-{
-    SerialDebugOutput(int baud=9600, LoggerOutputLevel level=ALL_LEVEL)
-    {
+namespace spark {
+
+class SerialLogger: public Logger {
+public:
+    explicit SerialLogger(int baud = 9600, LogLevel level = ALL_LEVEL, const Filters &filters = {}) :
+            Logger(level, filters) {
         Serial.begin(baud);
-        set_logger_output(log_output, level);
+        Logger::install(this);
     }
 
-    static void log_output(const char* msg)
-    {
-        Serial.print(msg);
-    //    Serial.flush();
-     //  HAL_Delay_Milliseconds(10);
+    virtual ~SerialLogger() {
+        Logger::uninstall(this);
     }
 
+protected:
+    virtual void write(const char* data, size_t size) override { // spark::Logger
+        Serial.write((const uint8_t*)data, size);
+    }
 };
 
-struct Serial1DebugOutput
-{
-    Serial1DebugOutput(int baud=9600, LoggerOutputLevel level=ALL_LEVEL)
-    {
+class Serial1Logger: public Logger {
+public:
+    explicit Serial1Logger(int baud = 9600, LogLevel level = ALL_LEVEL, const Filters &filters = {}) :
+            Logger(level, filters) {
         Serial1.begin(baud);
-        set_logger_output(log_output, level);
+        Logger::install(this);
     }
 
-    static void log_output(const char* msg)
-    {
-        Serial1.print(msg);
+    virtual ~Serial1Logger() {
+        Logger::uninstall(this);
     }
 
+protected:
+    virtual void write(const char* data, size_t size) override { // spark::Logger
+        Serial1.write((const uint8_t*)data, size);
+    }
 };
 
+} // namespace spark
+
+// Compatibility typedefs
+typedef spark::SerialLogger SerialDebugOutput;
+typedef spark::Serial1Logger Serial1DebugOutput;
 
 #endif	/* DEBUG_OUTPUT_HANDLER_H */
-
