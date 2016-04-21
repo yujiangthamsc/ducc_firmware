@@ -581,6 +581,8 @@ public:
  */
 static ServerSocketList servers;
 static SocketList clients;
+static ServerSocketList ap_servers;
+static SocketList ap_clients;
 
 SocketList& list_for(socket_t* socket) {
     return (socket->get_type()==socket_t::TCP_SERVER) ? servers : clients;
@@ -683,10 +685,21 @@ void close_all(SocketList& list)
     list.close_all();
 }
 
-void socket_close_all()
+SocketList& client_list(uint8_t type)
 {
-    close_all(clients);
-    close_all(servers);
+	return type ? ap_clients : clients;
+}
+
+SocketList& server_list(uint8_t type)
+{
+	return type ? ap_servers : servers;
+}
+
+
+void socket_close_all(uint8_t type)
+{
+	close_all(client_list(type));
+	close_all(server_list(type));
 }
 
 #define SOCKADDR_TO_PORT_AND_IPADDR(addr, addr_data, port, ip_addr) \

@@ -86,14 +86,6 @@ public:
         return network_clear_credentials(*this, 0, NULL, NULL);
     }
 
-    uint32_t ping(IPAddress remoteIP) {
-        return ping(remoteIP, 5);
-    }
-
-    uint32_t ping(IPAddress remoteIP, uint8_t nTries) {
-        return inet_ping(&remoteIP.raw(), *this, nTries, NULL);
-    }
-
     void connect(unsigned flags=0) {
         network_connect(*this, flags, 0, NULL);
     }
@@ -113,8 +105,11 @@ public:
     bool listening(void) {
         return network_listening(*this, 0, NULL);
     }
-	
-    int getCredentials(WiFiAccessPoint* results, size_t result_count);
+
+    String SSID() {
+    		return "";
+    }
+
 
 };
 
@@ -214,6 +209,16 @@ public:
         return scan((wlan_scan_result_t)handler, (void*)instance);
     }
 
+    uint32_t ping(IPAddress remoteIP) {
+        return ping(remoteIP, 5);
+    }
+
+    uint32_t ping(IPAddress remoteIP, uint8_t nTries) {
+        return inet_ping(&remoteIP.raw(), *this, nTries, NULL);
+    }
+
+    int getCredentials(WiFiAccessPoint* results, size_t result_count);
+
 };
 
 extern WiFiClass WiFi;
@@ -225,8 +230,6 @@ class WiFiAPClass : public WiFiCommon
     operator network_handle_t() {
         return 1;
     }
-
-    void set
 
 };
 

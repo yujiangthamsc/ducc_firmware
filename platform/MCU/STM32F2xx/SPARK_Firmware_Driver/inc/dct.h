@@ -27,6 +27,7 @@ extern "C" {
 #include "platform_flash_modules.h"
 #include "static_assert.h"
 #include "stddef.h"     // for offsetof in C
+#include "wlan_hal.h"
 
 #define MAX_MODULES_SLOT    5 //Max modules
 #define FAC_RESET_SLOT      0 //Factory reset module index
@@ -76,8 +77,9 @@ typedef struct __attribute__((packed)) application_dct {
     uint8_t alt_device_private_key[192];	// alternative device private key
     uint8_t alt_server_public_key[192];
     uint8_t alt_server_address[DCT_SERVER_ADDRESS_SIZE];		// server address info
+    WLanCredentialsPersist ap_credentials;
 
-    uint8_t reserved2[640];
+    uint8_t reserved2[536];
     // safe to add more data here or use up some of the reserved space to keep the end where it is
     uint8_t end[0];
 } application_dct_t;
@@ -103,6 +105,7 @@ typedef struct __attribute__((packed)) application_dct {
 #define DCT_ALT_DEVICE_PRIVATE_KEY_OFFSET (offsetof(application_dct_t, alt_device_private_key))
 #define DCT_ALT_SERVER_PUBLIC_KEY_OFFSET (offsetof(application_dct_t, alt_server_public_key))
 #define DCT_ALT_SERVER_ADDRESS_OFFSET (offsetof(application_dct_t, alt_server_address))
+#define DCT_AP_CREDENTIALS_OFFSET (offsetof(application_dct_t, ap_credentials))
 
 #define DCT_SYSTEM_FLAGS_SIZE  (sizeof(application_dct_t::system_flags))
 #define DCT_DEVICE_PRIVATE_KEY_SIZE  (sizeof(application_dct_t::device_private_key))
@@ -123,6 +126,7 @@ typedef struct __attribute__((packed)) application_dct {
 #define DCT_ALT_DEVICE_PRIVATE_KEY_SIZE  (sizeof(application_dct_t::alt_device_private_key))
 #define DCT_ALT_SERVER_PUBLIC_KEY_SIZE  (sizeof(application_dct_t::alt_server_public_key))
 #define DCT_ALT_SERVER_ADDRESS_SIZE  (sizeof(application_dct_t::alt_server_address))
+#define DCT_AP_CREDENTIALS_SIZE 	(sizeof(application_dct_t::ap_credentials))
 
 #define STATIC_ASSERT_DCT_OFFSET(field, expected) STATIC_ASSERT( dct_##field, offsetof(application_dct_t, field)==expected)
 #define STATIC_ASSERT_FLAGS_OFFSET(field, expected) STATIC_ASSERT( dct_sysflag_##field, offsetof(platform_system_flags_t, field)==expected)
@@ -153,8 +157,8 @@ STATIC_ASSERT_DCT_OFFSET(alt_device_public_key, 2978 /* 2977 + 1 */);
 STATIC_ASSERT_DCT_OFFSET(alt_device_private_key, 3106 /* 2978 + 128 */);
 STATIC_ASSERT_DCT_OFFSET(alt_server_public_key, 3298 /* 3106 + 192 */);
 STATIC_ASSERT_DCT_OFFSET(alt_server_address, 3490 /* 3298 + 192 */);
-
-STATIC_ASSERT_DCT_OFFSET(reserved2, 3618 /* 3490 + 128 */);
+STATIC_ASSERT_DCT_OFFSET(ap_credentials, 3618 /* 3490 + 128 */);
+STATIC_ASSERT_DCT_OFFSET(reserved2, 3722 /* 3618 + 104 */);
 STATIC_ASSERT_DCT_OFFSET(end, 4258 /* 2952 + 1280 */);
 
 STATIC_ASSERT_FLAGS_OFFSET(Bootloader_Version_SysFlag, 4);
