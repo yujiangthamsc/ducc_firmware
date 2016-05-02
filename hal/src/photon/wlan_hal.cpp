@@ -46,6 +46,13 @@
 #undef class
 
 /**
+ * These asserts mean that a network_interface_t value from the upper layers directly
+ * maps to the values used by WICED (by a happy coincidence.)
+ */
+static_assert(WWD_STA_INTERFACE==0, "expected STA interface to be value 0");
+static_assert(WWD_AP_INTERFACE==1, "expected AP interface to be value 0");
+
+/**
  * Retrieves the country code from the DCT region.
  */
 wiced_country_code_t fetch_country_code()
@@ -827,32 +834,3 @@ int wlan_get_credentials(wlan_scan_result_t callback, void* callback_data)
     return result < 0 ? result : count;
 }
 
-
-/**
- * Indicate if the application wants the AP mode active.
- * If the device is in listening mode, that takes precedence - the system will reconfigure the AP to the application specifications when
- * listening mode exits.
- */
-int wlan_ap_manage_state(uint8_t enabled, void* reserved)
-{
-	ap_requested = enabled;
-	ap_configure();
-}
-
-/**
- * Gets, sets or clears the credentials.
- * When update is false, then the credentials are read into the result parameter (if it is not null.)
- * When update is true, the credentials stored in result are set. If result is null, then the AP credentials are cleared.
- */
-int wlan_ap_manage_credentials(WLanCredentials* result, uint8_t update, void* reserved)
-{
-
-}
-
-/**
- * Begin AP listening mode.
- */
-int wlan_ap_listen(void* reserved)
-{
-
-}
