@@ -129,8 +129,6 @@ class ManagedNetworkInterface : public NetworkInterface
 protected:
     volatile uint8_t WLAN_SERIAL_CONFIG_DONE;
 
-    virtual network_interface_t network_interface() override { return 0; }
-
     virtual void start_listening()=0;
 
     template<typename T> void start_listening(SystemSetupConsole<T>& console)
@@ -238,6 +236,8 @@ protected:
     virtual void on_finalize_listening(bool external_process_complete)=0;
 
 public:
+
+    virtual network_interface_t network_interface() override { return 0; }
 
     virtual void get_ipconfig(IPConfig* config)=0;
 

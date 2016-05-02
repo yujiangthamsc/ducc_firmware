@@ -17,6 +17,7 @@
  ******************************************************************************
  */
 
+#include "spark_wiring_platform.h"
 #include "spark_wiring_ticks.h"
 #include "system_setup.h"
 #include "system_network.h"
@@ -42,7 +43,22 @@ volatile uint8_t SPARK_WLAN_STARTED;
 #include "system_network_wifi.h"
 WiFiNetworkInterface wifi;
 ManagedNetworkInterface& network = wifi;
-inline NetworkInterface& nif(network_interface_t _nif) { return wifi; }
+static_assert(0==WiFiNetworkInterface::INTERFACE_ID, "expected main interface to have id 0");
+
+#if Wiring_WiFi_AP
+#include "system_network_wifi_ap.h"
+WiFiAPNetworkInterface ap;
+static_assert(1==WiFiAPNetworkInterface::INTERFACE_ID, "expected AP interface to have id 1.");
+#endif
+
+inline NetworkInterface& nif(network_interface_t _nif) {
+#if Wiring_WiFi_AP
+	if (_nif==1)
+		return ap;
+#endif
+	return wifi;
+}
+
 #define Wiring_Network 1
 #endif
 
