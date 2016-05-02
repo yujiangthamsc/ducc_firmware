@@ -792,26 +792,34 @@ class SoftAPController {
     wiced_semaphore_t complete;
     dns_redirector_t dns_redirector;
 
-    wiced_result_t setup_soft_ap_credentials() {
+    void fetch_soft_ap_credentials(wiced_config_soft_ap_t* creds)
+    {
+        memset(creds, 0, sizeof(wiced_config_soft_ap_t));
+        fetch_or_generate_setup_ssid(&creds->SSID);
+        creds->channel = 11;
+        creds->details_valid = WICED_TRUE;
+    }
 
+    /**
+     * Bring up the AP interface. When wiced_network_up() is called later, the interface isn't touched
+     * since it's already up.
+     *
+     * The key difference doing it with wwd_wifi_start_up() compted to
+     * just calling wiced_network_ip() is that the AP settings are set directly
+     * rather than being read from the DCT. The DCT settings are then used for the persistent AP
+     * mode settings, and soft AP uses transient settings.
+     */
+    wiced_result_t start_ap()
+    {
+    		wiced_result_t result = wiced_network_down(WICED_AP_INTERFACE);
+    		if (result) return result;
 
-        wiced_config_soft_ap_t expected;
-        memset(&expected, 0, sizeof(expected));
-        fetch_or_generate_setup_ssid(&expected.SSID);
+		wiced_config_soft_ap_t soft_ap;
+		fetch_soft_ap_credentials(&soft_ap);
+		result = (wiced_result_t) wwd_wifi_start_ap( &soft_ap.SSID, soft_ap.security, (uint8_t*) soft_ap.security_key, soft_ap.security_key_length, soft_ap.channel );
+		if (result) return result;
 
-        expected.channel = 11;
-        expected.details_valid = WICED_TRUE;
-
-        wiced_config_soft_ap_t* soft_ap;
-        wiced_result_t result = wiced_dct_read_lock( (void**) &soft_ap, WICED_FALSE, DCT_WIFI_CONFIG_SECTION, OFFSETOF(platform_dct_wifi_config_t, soft_ap_settings), sizeof(wiced_config_soft_ap_t) );
-        if (result == WICED_SUCCESS)
-        {
-            if (memcmp(&expected, soft_ap, sizeof(expected))) {
-                result = wiced_dct_write(&expected, DCT_WIFI_CONFIG_SECTION, OFFSETOF(platform_dct_wifi_config_t, soft_ap_settings), sizeof(wiced_config_soft_ap_t));
-            }
-            wiced_dct_read_unlock( soft_ap, WICED_FALSE );
-        }
-        return result;
+		return WICED_SUCCESS;
     }
 
 public:
@@ -823,7 +831,7 @@ public:
     wiced_result_t start() {
         wiced_result_t result;
         if (!(result=wiced_rtos_init_semaphore(&complete)))
-            if (!(result=setup_soft_ap_credentials()))
+        		if (!(result=start_ap()))
                 if (!(result=wiced_network_up( WICED_AP_INTERFACE, WICED_USE_INTERNAL_DHCP_SERVER, &device_init_ip_settings )))
                     if (!(result=wiced_dns_redirector_start( &dns_redirector, WICED_AP_INTERFACE )))
                         result = WICED_SUCCESS;
