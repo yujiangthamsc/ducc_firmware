@@ -145,6 +145,7 @@ typedef enum {
     WLAN_SEC_NOT_SET = 0xFF
 } WLanSecurityType;
 
+STATIC_ASSERT(WLanSecurityType_size, sizeof(WLanSecurityType)==1);
 
 typedef enum {
     WLAN_CIPHER_NOT_SET = 0,
@@ -152,6 +153,9 @@ typedef enum {
     WLAN_CIPHER_TKIP = 2,
     WLAN_CIPHER_AES_TKIP = 3   // OR of AES and TKIP
 } WLanSecurityCipher;
+
+STATIC_ASSERT(WLanSecurityType_size, sizeof(WLanSecurityCipher)==1);
+
 
 typedef struct {
     unsigned size;           // the size of this structure. allows older clients to work with newer HAL.
@@ -254,19 +258,18 @@ void wlan_set_ipaddress_source(IPAddressSource source, bool persist, void* reser
 void wlan_set_ipaddress(const HAL_IPAddress* device, const HAL_IPAddress* netmask,
         const HAL_IPAddress* gateway, const HAL_IPAddress* dns1, const HAL_IPAddress* dns2, void* reserved);
 
-
-
-typedef struct WiFiAccessPoint {
-   size_t size;
+typedef struct __attribute__((packed)) WiFiAccessPoint  {
+   uint32_t size;
    char ssid[33];
    uint8_t ssidLength;
    uint8_t bssid[6];
    WLanSecurityType security;
    WLanSecurityCipher cipher;
    uint8_t channel;
-   int maxDataRate;   // the mdr in bits/s
-   int rssi;        // when scanning
-
+   uint8_t _padding_channel[1];
+   int32_t maxDataRate;   	// the mdr in bits/s
+   int32_t rssi;        		// when scanning
+   //char security_key[65];
 #ifdef __cplusplus
 
    WiFiAccessPoint()
@@ -276,6 +279,11 @@ typedef struct WiFiAccessPoint {
    }
 #endif
 } WiFiAccessPoint;
+
+// v1 - size 56
+// STATIC_ASSERT(WiFiAccessPoint_size_mismatch, sizeof(WiFiAccessPoint)==56);
+// v2 - added passcode field.
+STATIC_ASSERT(WiFiAccessPoint_size_mismatch, sizeof(WiFiAccessPoint)==(56));
 
 typedef void (*wlan_scan_result_t)(WiFiAccessPoint* ap, void* cookie);
 

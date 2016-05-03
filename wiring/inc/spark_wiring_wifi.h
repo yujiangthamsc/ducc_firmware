@@ -32,6 +32,9 @@
 
 #include "spark_wiring_network.h"
 #include "wlan_hal.h"
+#if Wiring_WiFi_AP
+#include "wlan_ap_hal.h"
+#endif
 #include "system_network.h"
 #include "inet_hal.h"
 #include <string.h>
@@ -64,7 +67,7 @@ public:
     }
 
     void setCredentials(const char *ssid, unsigned int ssidLen, const char *password,
-            unsigned int passwordLen, unsigned long security=WLAN_SEC_UNSEC, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
+            unsigned int passwordLen, unsigned long security, unsigned long cipher=WLAN_CIPHER_NOT_SET) {
 
         WLanCredentials creds;
         memset(&creds, 0, sizeof(creds));
@@ -106,11 +109,6 @@ public:
         return network_listening(*this, 0, NULL);
     }
 
-    String SSID() {
-    		return "";
-    }
-
-
 };
 
 class WiFiClass : public WiFiCommon
@@ -122,7 +120,7 @@ public:
     WiFiClass() {}
     ~WiFiClass() {}
 
-    operator network_handle_t() {
+    operator network_handle_t() override {
         return 0;
     }
 
@@ -217,19 +215,34 @@ public:
         return inet_ping(&remoteIP.raw(), *this, nTries, NULL);
     }
 
-    int getCredentials(WiFiAccessPoint* results, size_t result_count);
+	int getCredentials(WiFiAccessPoint* results, size_t result_count);
 
 };
 
 extern WiFiClass WiFi;
 
 #if Wiring_WiFi_AP
+
 class WiFiAPClass : public WiFiCommon
 {
-
-    operator network_handle_t() {
+public:
+    operator network_handle_t() override {
         return 1;
     }
+
+	int getCredentials(WiFiAccessPoint* results, size_t result_count) {
+		if (result_count<1 || (wlan_ap_get_credentials(results, nullptr))) {
+			return 0;
+		}
+		return 1;
+	}
+
+	/**
+	 * Fetches the configured credentials for the network interface.
+	 */
+	int getCredentials(WiFiAccessPoint& ap) {
+		return getCredentials(&ap, 1u);
+	}
 
 };
 

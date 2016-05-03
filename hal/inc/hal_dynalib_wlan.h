@@ -25,13 +25,16 @@
 #define	HAL_DYNALIB_WLAN_H
 
 #include "dynalib.h"
+#include "hal_platform.h"
 
-#if PLATFORM_ID != 10
+#if HAL_PLATFORM_WIFI
 
 #ifdef DYNALIB_EXPORT
 #include "wlan_hal.h"
 #include "inet_hal.h"
 #include "softap_http.h"
+
+
 #endif
 
 // WARNING

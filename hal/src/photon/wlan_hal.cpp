@@ -350,7 +350,7 @@ struct SnifferInfo
     int count;
 };
 
-WLanSecurityType toSecurityType(wiced_security_t sec)
+WLanSecurityType wlan_to_security_type(wiced_security_t sec)
 {
     if (sec==WICED_SECURITY_OPEN)
         return WLAN_SEC_UNSEC;
@@ -363,7 +363,7 @@ WLanSecurityType toSecurityType(wiced_security_t sec)
     return WLAN_SEC_NOT_SET;
 }
 
-WLanSecurityCipher toCipherType(wiced_security_t sec)
+WLanSecurityCipher wlan_to_cipherer_type(wiced_security_t sec)
 {
     if (sec & AES_ENABLED)
         return WLAN_CIPHER_AES;
@@ -400,8 +400,8 @@ wiced_result_t sniffer( wiced_scan_handler_result_t* malloced_scan_result )
             memcpy(data.bssid, (uint8_t*)&record->BSSID, 6);
             data.ssidLength = record->SSID.length;
             data.ssid[data.ssidLength] = 0;
-            data.security = toSecurityType(record->security);
-            data.cipher = toCipherType(record->security);
+            data.security = wlan_to_security_type(record->security);
+            data.cipher = wlan_to_cipherer_type(record->security);
             data.rssi = record->signal_strength;
             data.channel = record->channel;
             data.maxDataRate = record->max_data_rate;
@@ -418,7 +418,6 @@ wiced_result_t sniffer( wiced_scan_handler_result_t* malloced_scan_result )
 
 wiced_result_t sniff_security(SnifferInfo* info)
 {
-
     wiced_result_t result = wiced_rtos_init_semaphore(&info->complete);
     if (result != WICED_SUCCESS)
         return result;
@@ -434,13 +433,12 @@ wiced_result_t sniff_security(SnifferInfo* info)
 }
 
 /**
- * Converts the given the current security credentials.
+ * Converts a WLanSecurityType and WLanSecurityCipher to a combined wiced_security_t value.
  */
-wiced_security_t toSecurity(const char* ssid, unsigned ssid_len, WLanSecurityType sec,
-                            WLanSecurityCipher cipher)
+wiced_security_t wlan_to_wiced_security(WLanSecurityType sec, WLanSecurityCipher cipher)
 {
-    int result = 0;
-    switch (sec)
+	int result = 0;
+	switch (sec)
     {
         case WLAN_SEC_UNSEC:
             result = WICED_SECURITY_OPEN;
@@ -460,6 +458,17 @@ wiced_security_t toSecurity(const char* ssid, unsigned ssid_len, WLanSecurityTyp
         result |= AES_ENABLED;
     if (cipher & WLAN_CIPHER_TKIP)
         result |= TKIP_ENABLED;
+	return wiced_security_t(result);
+}
+
+
+/**
+ * Converts the given security credentials to a `wiced_security_t` type. If the cipher isn't specified, the network
+ * is scanned to determine the cipher.
+ */
+static wiced_security_t toSecurity(const char* ssid, unsigned ssid_len, WLanSecurityType sec, WLanSecurityCipher cipher)
+{
+    int result = wlan_to_wiced_security(sec, cipher);
 
     if (sec==WLAN_SEC_NOT_SET ||    // security not set, or WPA/WPA2 and cipher not set
         ((result & (WPA_SECURITY | WPA2_SECURITY) && (cipher == WLAN_CIPHER_NOT_SET))))
@@ -480,7 +489,7 @@ wiced_security_t toSecurity(const char* ssid, unsigned ssid_len, WLanSecurityTyp
     return wiced_security_t(result);
 }
 
-bool equals_ssid(const char* ssid, wiced_ssid_t& current)
+static bool equals_ssid(const char* ssid, wiced_ssid_t& current)
 {
     return (strlen(ssid)==current.length) && !memcmp(ssid, current.value, current.length);
 }
@@ -821,8 +830,8 @@ int wlan_get_credentials(wlan_scan_result_t callback, void* callback_data)
             memcpy(data.bssid, (uint8_t*)&record->BSSID, 6);
             data.ssidLength = record->SSID.length;
             data.ssid[data.ssidLength] = 0;
-            data.security = toSecurityType(record->security);
-            data.cipher = toCipherType(record->security);
+            data.security = wlan_to_security_type(record->security);
+            data.cipher = wlan_to_cipherer_type(record->security);
             data.rssi = record->signal_strength;
             data.channel = record->channel;
             data.maxDataRate = record->max_data_rate;

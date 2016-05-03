@@ -53,9 +53,7 @@ public:
         network_off(*this, 0, 0, nullptr);
     }
 
-    operator network_interface_t() {
-        return 0;   // the default
-    }
+    virtual operator network_interface_t()=0;
 
 
     static NetworkClass& from(network_interface_t nif);

@@ -130,8 +130,7 @@ the same way.
     WiFiClass WiFi;
     NetworkClass& Network = WiFi;
 
-
-#if Wiring_WiFiAP
+#if Wiring_WiFi_AP
     WiFiAPClass AP;
 #endif
 

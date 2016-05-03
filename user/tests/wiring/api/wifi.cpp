@@ -188,4 +188,17 @@ test(api_wifi_get_credentials)
     }
 }
 
+test(api_wifi_ap_credentials)
+{
+	bool result;
+	API_COMPILE(result=AP.hasCredentials());
+	API_COMPILE(AP.clearCredentials());
+
+	API_COMPILE(AP.setCredentials("ssid"));
+	API_COMPILE(AP.setCredentials("ssid", "password"));
+	API_COMPILE(AP.setCredentials("ssid", "password", WPA2));
+	API_COMPILE(AP.setCredentials("ssid", 4, "password", 8, WPA2, WLAN_CIPHER_AES));
+	(void)result;
+}
+
 #endif

@@ -1418,6 +1418,71 @@ void myPage(const char* url, ResponseCallback* cb, void* cbArg, Reader* body, Wr
 STARTUP(softap_set_application_page_handler(myPage, nullptr));
 ```
 
+{{#if photon}}
+Wi-Fi Access Point
+
+_Since 0.6.0_
+
+As well as connecting to an existing access point (AP), such as your router or mobile hotspot, a Photon itself can function as a Wi-Fi access point. 
+This can happen at the same time as using normal Wi-Fi connectivity. 
+
+Here's an overview of using the Access Point functionality:
+
+- The network interface `AP` is used to configure and manage the Photon's access point. 
+- The access point is available when the Wi-Fi module is on (`WiFi.on()`). The access point works independently from the device's Wi-Fi connection.
+- The SSID, security and IP addresses can be set using `AP.setCredentials()` and `AP.setIPAddress()`.
+- The SoftAP setup interface and the AP interface cannot both be active at the same time. When the system enters setup mode, the AP interface is temporarily deactivated. It is resumed when setup is complete. There are flags to disable SoftAP setup in listening mode.
+- Networking classes `TCPClient`, `TCPServer` and `UDP` can be created on the `AP` interface or the `WiFi` interface.
+
+
+### AP.clearCredentials()
+
+Removes any customized configuration for the Access Point. This reverts the Access Point credentials to use the same SSID as SoftAP setup mode, and open access.
+
+Calling this function when the credentials are already cleared has no affect. It only writes to the internal flash if there are already stored credentials, so clearing the credentials multiple times doesn't cause unnecessary wear.
+
+### AP.setCredentials()
+
+Sets the credentials used by clients to connect to the Access Point. 
+
+There are several alternatives that allow various levels of detail to be set. In all cases, setting the SSID to an empty string indicates the 
+default SSID is used. 
+
+- `AP.setCredentials(ssid)` : sets the SSID. The security is set to open (no password required.)
+- `AP.setCredentials(ssid, password)` : sets the SSID and password. The security type is set to `WPA2/AES` 
+- `AP.setCredentials(ssid, password, security)` : sets the SSID, password and security type. `security` is one of `UNSEC`, `WPA`, `WPA2`.  If WPA/WPA2 security is used, the cipher is set to `WLAN_CIPHER_AES`. 
+- `AP.setCredentials(ssid, password, security, cipher)` : sets the SSID, password and security type. `security` is one of `UNSEC`, `WPA`, `WPA2`. If WPA/WPA2 security is used, cipher can be set to `WLAN_CIPHER_AES`, `WLAN_CIPHER_AES_TKIP` or `WLAN_CIPHER_TKIP`.
+
+```cpp
+// SYNTAX
+
+AP.setCredentials("MySSID", "p@$$w0rD", WPA2);
+
+```
+
+### AP.getCredentials()
+
+Retrieves the configured security credentials for the Access Point. If no credentials are configured, the default credentials are retrieved.
+
+```cpp
+// EXAMPLE
+WiFiAccessPoint ap_credentials;
+AP.getCredentials(ap_credentials);
+
+Serial.print("ssid: ");
+Serial.println(ap_credentials.ssid);
+
+// security is one of WLAN_SEC_UNSEC (0), WLAN_SEC_WPA (2), WLAN_SEC_WPA2 (3)
+Serial.print("security: ");
+Serial.println(ap_credentials.security);
+
+// cipher is one of WLAN_CIPHER_AES (1), WLAN_CIPHER_TKIP (2), WLAN_CIPHER_AES_TKIP (3)
+Serial.print("cipher: ");
+Serial.println(ap_credentials.cipher);
+```
+
+{{/if}}
+
 {{/if}}
 
 

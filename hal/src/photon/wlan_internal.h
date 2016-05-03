@@ -25,12 +25,20 @@
 #define	WLAN_INTERNAL_H
 
 #include "wiced.h"
+#include "wlan_hal.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 wiced_result_t wlan_initialize_dct();
+
+wiced_security_t wlan_to_wiced_security(WLanSecurityType sec, WLanSecurityCipher cipher);
+
+WLanSecurityType wlan_to_security_type(wiced_security_t sec);
+WLanSecurityCipher wlan_to_cipherer_type(wiced_security_t sec);
+
+
 
 #ifdef __cplusplus
 }

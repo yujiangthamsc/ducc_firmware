@@ -20,6 +20,10 @@
 
 #include "wlan_hal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Indicate if the application wants the AP mode active.
  * If the device is in listening mode, that takes precedence - the system will reconfigure the AP to the application specifications when
@@ -28,14 +32,32 @@
 int wlan_ap_manage_state(uint8_t enabled, void* reserved);
 
 /**
- * Gets, sets or clears the credentials.
- * When update is false, then the credentials are read into the result parameter (if it is not null.)
- * When update is true, the credentials stored in result are set. If result is null, then the AP credentials are cleared.
+ * Sets or clears the credentials.
+ * When result is not null, the credentials stored in result are set.
+ * When result is null, the AP credentials are cleared.
  */
-int wlan_ap_manage_credentials(WLanCredentials* result, uint8_t update, void* reserved);
+int wlan_ap_set_credentials(WLanCredentials* result, void* reserved);
+
+/**
+ * Retrieves the AP credentials.
+ * @param result  The struct where the credentials are stored..
+ * @return 0 on success
+ */
+int wlan_ap_get_credentials(WiFiAccessPoint* result, void* reserved);
+
+/**
+ * Determines if AP credentials have been set.
+ * @return 0 on success (credentials are set.)
+ */
+int wlan_ap_has_credentials(void* reserved);
 
 /**
  * Begin AP listening mode.
  */
 int wlan_ap_listen(void* reserved);
+
+
+#ifdef __cplusplus
+}
+#endif
 
