@@ -16,6 +16,7 @@
 #include "core_hal.h"
 #include "rng_hal.h"
 #include "ota_flash_hal_stm32f2xx.h"
+#include "wlan_internal.h"
 
 #if SOFTAP_HTTP
 #include "http_server.h"
@@ -732,9 +733,6 @@ const int DEVICE_ID_LEN = 4;
 
 STATIC_ASSERT(device_id_len_is_same_as_dct_storage, DEVICE_ID_LEN<=DCT_DEVICE_ID_SIZE);
 
-
-extern "C" bool fetch_or_generate_setup_ssid(wiced_ssid_t* SSID);
-
 /**
  * Copies the device ID to the destination, generating it if necessary.
  * @param dest      A buffer with room for at least 6 characters. The
@@ -776,14 +774,16 @@ bool fetch_or_generate_ssid_prefix(wiced_ssid_t* SSID) {
     return generate;
 }
 
+/**
+ * Fetches or generates the default SSID for the device.
+ * Returns true if this was newly generated, or false if it already existed.
+ */
 bool fetch_or_generate_setup_ssid(wiced_ssid_t* SSID) {
     bool result = fetch_or_generate_ssid_prefix(SSID);
     SSID->value[SSID->length++] = '-';
     result |= fetch_or_generate_device_id(SSID);
     return result;
 }
-
-extern "C" wiced_ip_setting_t device_init_ip_settings;
 
 /**
  * Manages the soft access point.
@@ -811,15 +811,9 @@ class SoftAPController {
      */
     wiced_result_t start_ap()
     {
-    		wiced_result_t result = wiced_network_down(WICED_AP_INTERFACE);
-    		if (result) return result;
-
 		wiced_config_soft_ap_t soft_ap;
 		fetch_soft_ap_credentials(&soft_ap);
-		result = (wiced_result_t) wwd_wifi_start_ap( &soft_ap.SSID, soft_ap.security, (uint8_t*) soft_ap.security_key, soft_ap.security_key_length, soft_ap.channel );
-		if (result) return result;
-
-		return WICED_SUCCESS;
+		return wlan_ap_up(soft_ap, &device_init_ip_settings);
     }
 
 public:
@@ -832,9 +826,8 @@ public:
         wiced_result_t result;
         if (!(result=wiced_rtos_init_semaphore(&complete)))
         		if (!(result=start_ap()))
-                if (!(result=wiced_network_up( WICED_AP_INTERFACE, WICED_USE_INTERNAL_DHCP_SERVER, &device_init_ip_settings )))
-                    if (!(result=wiced_dns_redirector_start( &dns_redirector, WICED_AP_INTERFACE )))
-                        result = WICED_SUCCESS;
+				if (!(result=wiced_dns_redirector_start( &dns_redirector, WICED_AP_INTERFACE )))
+					result = WICED_SUCCESS;
         return result;
     }
 

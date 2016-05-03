@@ -29,7 +29,7 @@ extern "C" {
  * If the device is in listening mode, that takes precedence - the system will reconfigure the AP to the application specifications when
  * listening mode exits.
  */
-int wlan_ap_manage_state(uint8_t enabled, void* reserved);
+int wlan_ap_enabled(uint8_t enabled, void* reserved);
 
 /**
  * Sets or clears the credentials.

@@ -52,6 +52,7 @@ public:
     virtual void on(bool update_led) override
     {
     		wifi.on(update_led);
+    		wlan_ap_enabled(true, nullptr);
     }
 
     /**
@@ -59,7 +60,7 @@ public:
      */
     virtual void off(bool disconnect_cloud=false) override
     {
-    		wifi.off(disconnect_cloud);
+    		wlan_ap_enabled(false, nullptr);
     }
 
     /**

@@ -28,6 +28,9 @@
 #include "wlan_hal.h"
 
 #ifdef __cplusplus
+
+wiced_result_t wlan_ap_up(wiced_config_soft_ap_t& creds, const wiced_ip_setting_t* device_init_ip_settings);
+
 extern "C" {
 #endif
 
@@ -38,6 +41,9 @@ wiced_security_t wlan_to_wiced_security(WLanSecurityType sec, WLanSecurityCipher
 WLanSecurityType wlan_to_security_type(wiced_security_t sec);
 WLanSecurityCipher wlan_to_cipherer_type(wiced_security_t sec);
 
+bool fetch_or_generate_setup_ssid(wiced_ssid_t* SSID);
+
+extern const wiced_ip_setting_t device_init_ip_settings;
 
 
 #ifdef __cplusplus

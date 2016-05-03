@@ -1434,6 +1434,16 @@ Here's an overview of using the Access Point functionality:
 - The SoftAP setup interface and the AP interface cannot both be active at the same time. When the system enters setup mode, the AP interface is temporarily deactivated. It is resumed when setup is complete. There are flags to disable SoftAP setup in listening mode.
 - Networking classes `TCPClient`, `TCPServer` and `UDP` can be created on the `AP` interface or the `WiFi` interface.
 
+### AP.on()
+
+Brings up the local Access Point network interface. Powers on the wifi module if it was not previously powered up. 
+
+The access point is created using the details provided by `AP.getCredentials()`
+
+### AP.off()
+
+Takes down the local Access Point network interface. Any sockets that were
+bound to this interface are automatically closed. 
 
 ### AP.clearCredentials()
 

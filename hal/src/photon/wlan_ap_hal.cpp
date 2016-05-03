@@ -3,18 +3,47 @@
 #include "wlan_internal.h"
 #include "service_debug.h"
 #include "wiced.h"
+#include "softap.h"
 #include <string.h>
+
+wiced_result_t ap_get_credentials(wiced_config_soft_ap_t& creds);
+
+
+wiced_result_t wlan_ap_up(wiced_config_soft_ap_t& creds, const wiced_ip_setting_t* ip_settings)
+{
+	wiced_result_t result = wiced_network_down(WICED_AP_INTERFACE);
+	if (result) return result;
+
+	result = (wiced_result_t) wwd_wifi_start_ap( &creds.SSID, creds.security, (uint8_t*) creds.security_key,
+			creds.security_key_length, creds.channel );
+	if (result) return result;
+
+    result=wiced_network_up( WICED_AP_INTERFACE, WICED_USE_INTERNAL_DHCP_SERVER, ip_settings);
+	if (result) return result;
+
+	return WICED_SUCCESS;
+}
 
 /**
  * Indicate if the application wants the AP mode active.
  * If the device is in listening mode, that takes precedence - the system will reconfigure the AP to the application specifications when
  * listening mode exits.
  */
-int wlan_ap_manage_state(uint8_t enabled, void* reserved)
+int wlan_ap_enabled(uint8_t enabled, void* reserved)
 {
-	//ap_requested = enabled;
-	//ap_configure();
-	return 0;
+	wiced_result_t result;
+	if (enabled)
+	{
+		wiced_config_soft_ap_t creds;
+		result = ap_get_credentials(creds);
+		if (result) return result;
+		result = wlan_ap_up(creds, &device_init_ip_settings);
+	}
+	else
+	{
+		result = wiced_network_down(WICED_AP_INTERFACE);
+	}
+	return result;
 }
 
 #define AP_CREDS_OFFSET (OFFSETOF(platform_dct_wifi_config_t, soft_ap_settings))
@@ -131,17 +160,44 @@ int wlan_ap_set_credentials(WLanCredentials* wlan_creds, void* reserved)
 }
 
 /**
+ * Fetches the credentials from the dct and fills in defaults.
+ */
+wiced_result_t ap_get_stored_credentials(wiced_config_soft_ap_t& creds)
+{
+	wiced_config_soft_ap_t* dct_creds;
+	wiced_result_t result = read_ap_credentials(&dct_creds);
+	if (result == WICED_SUCCESS)
+	{
+		memcpy(&creds, dct_creds, sizeof(creds));
+		unread_ap_credentials(dct_creds);
+	}
+	return result;
+}
+
+/**
+ * Fetches the credentials from the dct and fills in defaults.
+ */
+wiced_result_t ap_get_credentials(wiced_config_soft_ap_t& creds)
+{
+	wiced_result_t result = ap_get_stored_credentials(creds);
+	if (!creds.SSID.length) {
+		fetch_or_generate_setup_ssid(&creds.SSID);
+	}
+	if (!creds.channel)
+		creds.channel = 11;
+	return result;
+}
+
+/**
  * Retrieves the AP credentials.
  */
 int wlan_ap_get_credentials(WiFiAccessPoint* wap, void* reserved)
 {
-    wiced_config_soft_ap_t* dct_creds = nullptr;
-	wiced_result_t result = read_ap_credentials(&dct_creds);
+    wiced_config_soft_ap_t creds;
+	wiced_result_t result = ap_get_credentials(creds);
 	if (result == WICED_SUCCESS)
 	{
-		copy_to_wifi_access_point(*wap, *dct_creds);
-		unread_ap_credentials(dct_creds);
-
+		copy_to_wifi_access_point(*wap, creds);
 		if (wiced_network_is_up(WICED_AP_INTERFACE)) {
 			wiced_mac_t mac;
 			wwd_wifi_get_mac_address(&mac, WWD_AP_INTERFACE);
