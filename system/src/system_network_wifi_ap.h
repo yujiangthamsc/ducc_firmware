@@ -32,6 +32,8 @@ extern WiFiNetworkInterface wifi;
 // todo - rename NetworkInterface to NetworkClientInterface and make a simpler base class that doesn't have the client methods.
 class WiFiAPNetworkInterface : public NetworkInterface
 {
+	bool _ready;
+
 public:
     static const network_interface_t INTERFACE_ID = 1;
 
@@ -53,6 +55,8 @@ public:
     {
     		wifi.on(update_led);
     		wlan_ap_enabled(true, nullptr);
+    		_ready = true;
+    		// todo - fetch current state from the HAL
     }
 
     /**
@@ -61,6 +65,7 @@ public:
     virtual void off(bool disconnect_cloud=false) override
     {
     		wlan_ap_enabled(false, nullptr);
+    		_ready = false;
     }
 
     /**
@@ -139,7 +144,7 @@ public:
 
     virtual bool ready()  override
     {
-    		return false;
+    		return _ready;
     }
 
     virtual bool clear_credentials() override

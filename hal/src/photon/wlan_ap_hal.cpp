@@ -223,6 +223,13 @@ int wlan_ap_has_credentials(void* reserved)
 	return result;
 }
 
+int wlan_ap_get_state(uint8_t* state, void* reserved)
+{
+	*state = wiced_network_is_up(WICED_AP_INTERFACE);
+	return 0;
+}
+
+
 /**
  * Begin AP listening mode.
  */

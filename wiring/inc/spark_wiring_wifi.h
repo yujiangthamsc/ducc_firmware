@@ -89,18 +89,6 @@ public:
         return network_clear_credentials(*this, 0, NULL, NULL);
     }
 
-    void connect(unsigned flags=0) {
-        network_connect(*this, flags, 0, NULL);
-    }
-
-    void disconnect(void) {
-        network_disconnect(*this, 0, NULL);
-    }
-
-    bool connecting(void) {
-        return network_connecting(*this, 0, NULL);
-    }
-
     void listen(bool begin=true) {
         network_listen(*this, begin ? 0 : 1, NULL);
     }
@@ -216,6 +204,18 @@ public:
     }
 
 	int getCredentials(WiFiAccessPoint* results, size_t result_count);
+
+    void connect(unsigned flags=0) {
+        network_connect(*this, flags, 0, NULL);
+    }
+
+    void disconnect(void) {
+        network_disconnect(*this, 0, NULL);
+    }
+
+    bool connecting(void) {
+        return network_connecting(*this, 0, NULL);
+    }
 
 };
 

@@ -1423,16 +1423,24 @@ Wi-Fi Access Point
 
 _Since 0.6.0_
 
-As well as connecting to an existing access point (AP), such as your router or mobile hotspot, a Photon itself can function as a Wi-Fi access point. 
-This can happen at the same time as using normal Wi-Fi connectivity. 
+As well as connecting to an existing W-Fi access point (WAP), such as your router or mobile hotspot, your device can itself function as a Wi-Fi access point, which allows other Wi-Fi enabled devices to connect directly to it.
+ 
+You'll recall that the `WiFi` interface connects to your router and out to the internet. The `AP` interface doesn't connect to the interent. Instead, it connects to other devices that have connected to the devices Access Point. 
 
-Here's an overview of using the Access Point functionality:
+The device runs the Access Point at the same time as providing outgoing Wi-Fi connectivity. You can use the `AP` interface to connect to Wi-Fi clients connected directly to your device, and at the same time use the `WiFi` interface to connect to other clients on your router's local network or on the internet. 
+
+Some key points of the Access Point provided:
 
 - The network interface `AP` is used to configure and manage the Photon's access point. 
-- The access point is available when the Wi-Fi module is on (`WiFi.on()`). The access point works independently from the device's Wi-Fi connection.
-- The SSID, security and IP addresses can be set using `AP.setCredentials()` and `AP.setIPAddress()`.
-- The SoftAP setup interface and the AP interface cannot both be active at the same time. When the system enters setup mode, the AP interface is temporarily deactivated. It is resumed when setup is complete. There are flags to disable SoftAP setup in listening mode.
+
+- The access point is available when the Wi-Fi module is on (`WiFi.on()`). The access point works independently from the device's outgoing Wi-Fi connection.
+
+- The SSID, security and IP addresses can be set using `AP.setCredentials()` and `AP.setIPAddress()`. If not set, they use the device's default SSID and open security.
+
+- The SoftAP setup interface and the AP interface cannot both be active at the same time. When the system enters setup mode, the AP interface is temporarily deactivated, andis resumed when setup is complete. 
+
 - Networking classes `TCPClient`, `TCPServer` and `UDP` can be created on the `AP` interface or the `WiFi` interface.
+
 
 ### AP.on()
 
@@ -1440,10 +1448,30 @@ Brings up the local Access Point network interface. Powers on the wifi module if
 
 The access point is created using the details provided by `AP.getCredentials()`
 
+```cpp
+// SYNTAX
+AP.on();
+```
+
 ### AP.off()
 
 Takes down the local Access Point network interface. Any sockets that were
 bound to this interface are automatically closed. 
+
+```cpp
+// SYNTAX
+AP.off();
+```
+
+### AP.ready()
+
+Determines if the AP interface is active. This returns `true` after calling `AP.on()`, and `false` after calling `AP.off()`.
+
+```cpp
+// EXAMPLE
+AP.ready();
+```
+
 
 ### AP.clearCredentials()
 
@@ -1472,7 +1500,9 @@ AP.setCredentials("MySSID", "p@$$w0rD", WPA2);
 
 ### AP.getCredentials()
 
-Retrieves the configured security credentials for the Access Point. If no credentials are configured, the default credentials are retrieved.
+Retrieves the configured BSSID/SSID and security credentials for the Access Point. If no credentials are configured, the default credentials are retrieved.
+
+The BSSID is retrieved when the Access Point is up. If the access point is down, the BSSID reads as `00:00:00:00:00:00`. 
 
 ```cpp
 // EXAMPLE
@@ -1489,6 +1519,20 @@ Serial.println(ap_credentials.security);
 // cipher is one of WLAN_CIPHER_AES (1), WLAN_CIPHER_TKIP (2), WLAN_CIPHER_AES_TKIP (3)
 Serial.print("cipher: ");
 Serial.println(ap_credentials.cipher);
+```
+
+### AP.ready()
+
+Determines if the AP network interface is up.
+
+```cpp
+// EXAMPLE
+bool ap_is_up = AP.ready();
+if (ap_is_up) {
+    TCPServer server;
+    ...
+}
+
 ```
 
 {{/if}}

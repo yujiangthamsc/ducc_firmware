@@ -201,4 +201,16 @@ test(api_wifi_ap_credentials)
 	(void)result;
 }
 
+test(api_wifi_ap_state)
+{
+	bool state;
+	API_COMPILE(state=AP.ready());
+	API_COMPILE(AP.on());
+	API_COMPILE(AP.off());
+	(void)state;
+}
+
+
+
+
 #endif

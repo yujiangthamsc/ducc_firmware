@@ -52,6 +52,11 @@ int wlan_ap_get_credentials(WiFiAccessPoint* result, void* reserved);
 int wlan_ap_has_credentials(void* reserved);
 
 /**
+ * Determines if the AP is up or not.
+ */
+int wlan_ap_get_state(uint8_t* state, void* reserved);
+
+/**
  * Begin AP listening mode.
  */
 int wlan_ap_listen(void* reserved);
