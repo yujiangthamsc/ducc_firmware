@@ -219,7 +219,7 @@ std::string randomString(size_t size = 0) {
     static const std::string chars("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()`~-_=+[{]}\\|;:'\",<.>/? ");
     std::random_device rd;
     if (!size) {
-        size = rd() % LOG_MAX_STRING_LENGTH + 1;
+        size = rd() % (LOG_MAX_STRING_LENGTH / 2) + 1;
     }
     std::uniform_int_distribution<size_t> dist(0, chars.size() - 1);
     std::string s;
@@ -380,7 +380,7 @@ CATCH_TEST_CASE("Direct logging") {
         log.bufferEndsWith(toHex(s));
     }
     CATCH_SECTION("compatibility macros") {
-        std::string s = randomString();
+        std::string s = randomString(LOG_MAX_STRING_LENGTH / 2);
         DEBUG_D("%s", s.c_str()); // Alias for LOG_DEBUG_PRINTF(TRACE, ...)
 #ifdef DEBUG_BUILD
         log.bufferEquals(s);
@@ -431,7 +431,7 @@ CATCH_TEST_CASE("Direct logging (compatibility callback)") {
         log.bufferEndsWith(toHex(s));
     }
     CATCH_SECTION("compatibility macros") {
-        std::string s = randomString();
+        std::string s = randomString(LOG_MAX_STRING_LENGTH / 2);
         DEBUG_D("%s", s.c_str()); // Alias for LOG_DEBUG_PRINTF(TRACE, ...)
 #ifdef DEBUG_BUILD
         log.bufferEquals(s);
