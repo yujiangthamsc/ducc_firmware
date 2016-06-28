@@ -127,7 +127,7 @@ private:
 
 class TestLogHandler: public LogHandler {
 public:
-    explicit TestLogHandler(LogLevel level = LOG_LEVEL_ALL, const Filters &filters = {}):
+    explicit TestLogHandler(LogLevel level = LOG_LEVEL_ALL, LogCategoryFilters filters = {}):
             LogHandler(level, filters) {
         LogManager::instance()->addHandler(this);
     }

@@ -15,6 +15,11 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE // for strchrnul()
+#endif
+#include <cstring>
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
@@ -22,6 +27,53 @@
 #include "spark_wiring_logging.h"
 
 namespace {
+
+#if PLATFORM_ID == 3
+// GCC on some platforms doesn't provide strchnull() regardless of _GNU_SOURCE feature macro
+inline const char* strchrnul(const char *s, char c) {
+    while (*s && *s != c) {
+        ++s;
+    }
+    return s;
+}
+#endif
+
+// Slightly tweaked version of std::lower_bound() taking strcmp-alike comparator function
+template<typename T, typename CompareT, typename... ArgsT>
+int lowerBound(const spark::Array<T> &array, CompareT compare, bool &found, ArgsT... args) {
+    found = false;
+    int index = 0;
+    int n = array.size();
+    while (n > 0) {
+        const int half = n >> 1;
+        const int i = index + half;
+        const int cmp = compare(array.at(i), args...);
+        if (cmp < 0) {
+            index = i + 1;
+            n -= half + 1;
+        } else {
+            if (cmp == 0) {
+                found = true;
+            }
+            n = half;
+        }
+    }
+    return index;
+}
+
+// Iterates over subcategory names
+const char* nextSubcategoryName(const char* &category, size_t &size) {
+    const char *s = strchrnul(category, '.');
+    size = s - category;
+    if (size) {
+        if (*s) {
+            ++s;
+        }
+        std::swap(s, category);
+        return s;
+    }
+    return nullptr;
+}
 
 const char* extractFileName(const char *s) {
     const char *s1 = strrchr(s, '/');
@@ -47,27 +99,13 @@ const char* extractFuncName(const char *s, size_t *size) {
 } // namespace
 
 // Default logger instance. This code is compiled as part of the wiring library which has its own
-// category name specified at module level, so here we have to use "app" category name explicitly
+// category name specified at module level, so here we specify "app" category name explicitly
 const spark::Logger spark::Log("app");
 
-// spark::LogHandler
-struct spark::LogHandler::FilterData {
-    const char *name; // Subcategory name
-    size_t size; // Name length
-    int level; // Logging level (-1 if not specified for this node)
-    std::vector<FilterData> filters; // Children nodes
-
-    FilterData(const char *name, size_t size) :
-            name(name),
-            size(size),
-            level(-1) {
-    }
-};
-
 /*
-    This method builds prefix tree based on the list of filter strings. Every node of the tree
-    contains subcategory name and, optionally, logging level - if node matches complete filter
-    string. For example, given following filters:
+    LogFilter instance maintains a prefix tree based on a list of category filter strings. Every
+    node of the tree contains a subcategory name and, optionally, a logging level - if node matches
+    complete filter string. For example, given the following filters:
 
     a (error)
     a.b.c (trace)
@@ -75,7 +113,7 @@ struct spark::LogHandler::FilterData {
     aa (error)
     aa.b (warn)
 
-    The code builds following prefix tree:
+    LogFilter builds the following prefix tree:
 
     |
     |- a (error) -- b - c (trace)
@@ -84,93 +122,97 @@ struct spark::LogHandler::FilterData {
     |
     `- aa (error) - b (warn)
 */
-spark::LogHandler::LogHandler(LogLevel level, const Filters &filters) :
+
+// spark::LogFilter
+struct spark::LogFilter::Node {
+    const char *name; // Subcategory name
+    uint16_t size; // Name length
+    int16_t level; // Logging level (-1 if not specified for this node)
+    Array<Node> nodes; // Children nodes
+
+    Node(const char *name, uint16_t size) :
+            name(name),
+            size(size),
+            level(-1) {
+    }
+};
+
+spark::LogFilter::LogFilter(LogLevel level) :
         level_(level) {
-    for (auto it = filters.begin(); it != filters.end(); ++it) {
-        const char* const category = it->first;
-        const LogLevel level = it->second;
-        std::vector<FilterData> *filters = &filters_; // Root nodes
-        size_t pos = 0;
-        for (size_t i = 0;; ++i) {
-            if (category[i] && category[i] != '.') { // Category name separator
-                continue;
-            }
-            const size_t size = i - pos;
-            if (!size) {
-                break; // Invalid category name
-            }
-            const char* const name = category + pos;
-            // Use binary search to find existent node or position for new node
+}
+
+spark::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) :
+        level_(LOG_LEVEL_NONE) { // Fallback level that will be used in case of construction errors
+    // Store category names
+    Array<String> cats;
+    if (!cats.reserve(filters.size())) {
+        return;
+    }
+    for (LogCategoryFilter &filter: filters) {
+        cats.append(std::move(filter.cat_));
+    }
+    // Process category filters
+    Array<Node> nodes;
+    for (int i = 0; i < cats.size(); ++i) {
+        const char *category = cats.at(i).c_str();
+        if (!category) {
+            continue; // Invalid usage or string allocation error
+        }
+        Array<Node> *pNodes = &nodes; // Root nodes
+        const char *name = nullptr; // Subcategory name
+        size_t size = 0; // Name length
+        while ((name = nextSubcategoryName(category, size))) {
             bool found = false;
-            auto it = std::lower_bound(filters->begin(), filters->end(), std::make_pair(name, size),
-                    [&found](const FilterData &filter, const std::pair<const char*, size_t> &value) {
-                const int cmp = std::strncmp(filter.name, value.first, std::min(filter.size, value.second));
-                if (cmp == 0) {
-                    if (filter.size == value.second) {
-                        found = true;
-                    }
-                    return filter.size < value.second;
-                }
-                return cmp < 0;
-            });
-            if (!found) {
-                it = filters->insert(it, FilterData(name, size)); // Add node
+            const int index = nodeIndex(*pNodes, name, size, found);
+            if (!found && !pNodes->insert(index, Node(name, size))) { // Add node
+                return;
             }
-            if (!category[i]) {
-                it->level = level;
+            Node &node = pNodes->at(index);
+            if (!*category) { // Check if it's last subcategory
+                node.level = filters.at(i).level_;
+            }
+            pNodes = &node.nodes;
+        }
+    }
+    using std::swap;
+    swap(cats_, cats);
+    swap(nodes_, nodes);
+    level_ = level;
+}
+
+spark::LogFilter::~LogFilter() {
+}
+
+LogLevel spark::LogFilter::level(const char *category) const {
+    LogLevel level = level_; // Default level
+    if (!nodes_.isEmpty() && category) {
+        const Array<Node> *pNodes = &nodes_; // Root nodes
+        const char *name = nullptr; // Subcategory name
+        size_t size = 0; // Name length
+        while ((name = nextSubcategoryName(category, size))) {
+            bool found = false;
+            const int index = nodeIndex(*pNodes, name, size, found);
+            if (!found) {
                 break;
             }
-            filters = &it->filters;
-            pos = i + 1;
-        }
-    }
-}
-
-spark::LogHandler::~LogHandler() {
-}
-
-LogLevel spark::LogHandler::categoryLevel(const char *category) const {
-    if (!category || filters_.empty()) {
-        return level_; // Default level
-    }
-    LogLevel level = level_;
-    const std::vector<FilterData> *filters = &filters_; // Root nodes
-    size_t pos = 0;
-    for (size_t i = 0;; ++i) {
-        if (category[i] && category[i] != '.') { // Category name separator
-            continue;
-        }
-        const size_t size = i - pos;
-        if (!size) {
-            break; // Invalid category name
-        }
-        const char* const name = category + pos;
-        // Use binary search to find node for current subcategory
-        bool found = false;
-        auto it = std::lower_bound(filters->begin(), filters->end(), std::make_pair(name, size),
-                [&found](const FilterData &filter, const std::pair<const char*, size_t> &value) {
-            const int cmp = std::strncmp(filter.name, value.first, std::min(filter.size, value.second));
-            if (cmp == 0) {
-                if (filter.size == value.second) {
-                    found = true;
-                }
-                return filter.size < value.second;
+            const Node &node = pNodes->at(index);
+            if (node.level >= 0) {
+                level = (LogLevel)node.level;
             }
-            return cmp < 0;
-        });
-        if (!found) {
-            break;
+            pNodes = &node.nodes;
         }
-        if (it->level >= 0) {
-            level = (LogLevel)it->level;
-        }
-        if (!category[i]) {
-            break;
-        }
-        filters = &it->filters;
-        pos = i + 1;
     }
     return level;
+}
+
+int spark::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found) {
+    return lowerBound(nodes, [](const Node &node, const char *name, uint16_t size) {
+            const int cmp = strncmp(node.name, name, std::min(node.size, size));
+            if (cmp == 0) {
+                return (int)node.size - (int)size;
+            }
+            return cmp;
+        }, found, name, (uint16_t)size);
 }
 
 // spark::StreamLogHandler
@@ -284,7 +326,7 @@ int spark::LogManager::logEnabled(int level, const char *category, void *reserve
     int minLevel = LOG_LEVEL_NONE;
     const auto &handlers = instance()->handlers_;
     for (size_t i = 0; i < handlers.size(); ++i) {
-        const int level = handlers[i]->categoryLevel(category);
+        const int level = handlers[i]->level(category);
         if (level < minLevel) {
             minLevel = level;
         }

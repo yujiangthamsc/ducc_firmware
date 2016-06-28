@@ -26,10 +26,52 @@
 #include "logging.h"
 
 #include "spark_wiring_print.h"
+#include "spark_wiring_string.h"
+#include "spark_wiring_array.h"
 
 namespace spark {
 
-class AttributedLogger;
+class LogCategoryFilter {
+public:
+    LogCategoryFilter(String category, LogLevel level);
+    LogCategoryFilter(const char *category, LogLevel level);
+    LogCategoryFilter(const char *category, size_t length, LogLevel level);
+
+    const char* category() const;
+    LogLevel level() const;
+
+private:
+    String cat_;
+    LogLevel level_;
+
+    friend class LogFilter;
+};
+
+typedef Array<LogCategoryFilter> LogCategoryFilters;
+
+// Internal implementation
+class LogFilter {
+public:
+    explicit LogFilter(LogLevel level);
+    LogFilter(LogLevel level, LogCategoryFilters filters);
+    ~LogFilter();
+
+    LogLevel level() const;
+    LogLevel level(const char *category) const;
+
+    // This class in non-copyable
+    LogFilter(const LogFilter&) = delete;
+    LogFilter& operator=(const LogFilter&) = delete;
+
+private:
+    struct Node;
+
+    Array<String> cats_; // Category filter strings
+    Array<Node> nodes_; // Lookup table
+    LogLevel level_; // Default level
+
+    static int nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found);
+};
 
 /*!
     \brief Abstract log handler.
@@ -43,36 +85,26 @@ class AttributedLogger;
 */
 class LogHandler {
 public:
-    /*!
-        \brief Category filter.
-
-        Specifies minimal logging level enabled for a matching category.
-    */
-    typedef std::pair<const char*, LogLevel> Filter;
-    /*!
-        \brief List of category filters.
-    */
-    typedef std::initializer_list<Filter> Filters;
-
+    explicit LogHandler(LogLevel level = LOG_LEVEL_INFO);
     /*!
         \brief Constructor.
         \param level Default logging level.
         \param filters Category filters.
     */
-    explicit LogHandler(LogLevel level = LOG_LEVEL_INFO, const Filters &filters = {});
+    LogHandler(LogLevel level, LogCategoryFilters filters);
     /*!
         \brief Destructor.
     */
-    virtual ~LogHandler();
+    virtual ~LogHandler() = default;
     /*!
         \brief Returns default logging level.
     */
-    LogLevel defaultLevel() const;
+    LogLevel level() const;
     /*!
         \brief Returns logging level enabled for specified category.
         \param category Category name.
     */
-    LogLevel categoryLevel(const char *category) const;
+    LogLevel level(const char *category) const;
     /*!
         \brief Returns level name.
         \param level Logging level.
@@ -82,6 +114,10 @@ public:
     // These methods are called by the LogManager
     void message(const char *msg, LogLevel level, const char *category, const LogAttributes &attr);
     void write(const char *data, size_t size, LogLevel level, const char *category);
+
+    // This class is non-copyable
+    LogHandler(const LogHandler&) = delete;
+    LogHandler& operator=(const LogHandler&) = delete;
 
 protected:
     /*!
@@ -104,10 +140,7 @@ protected:
     virtual void write(const char *data, size_t size);
 
 private:
-    struct FilterData;
-
-    std::vector<FilterData> filters_;
-    LogLevel level_;
+    LogFilter filter_;
 };
 
 /*!
@@ -128,7 +161,7 @@ public:
         \param level Default logging level.
         \param filters Category filters.
     */
-    explicit StreamLogHandler(Stream &stream, LogLevel level = LOG_LEVEL_INFO, const Filters &filters = {});
+    explicit StreamLogHandler(Stream &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
     /*!
         \brief Returns output stream.
     */
@@ -165,6 +198,8 @@ protected:
 private:
     Stream *stream_;
 };
+
+class AttributedLogger;
 
 /*!
     \brief Logger.
@@ -321,6 +356,10 @@ public:
     */
     void operator()(LogLevel level, const char *fmt, ...) const __attribute__((format(printf, 3, 4)));
 
+    // This class is non-copyable
+    Logger(const Logger&) = delete;
+    Logger& operator=(const Logger&) = delete;
+
 private:
     const char* const name_; // Category name
 
@@ -368,7 +407,11 @@ private:
     LogAttributes attr_;
 
     explicit AttributedLogger(const char *name);
+    AttributedLogger(const AttributedLogger&) = default;
+
     void log(LogLevel level, const char *fmt, va_list args);
+
+    AttributedLogger& operator=(const AttributedLogger&) = default;
 
     friend class Logger;
 };
@@ -398,6 +441,10 @@ public:
     */
     static LogManager* instance();
 
+    // This class is non-copyable
+    LogManager(const LogManager&) = delete;
+    LogManager& operator=(const LogManager&) = delete;
+
 private:
     std::vector<LogHandler*> handlers_;
 
@@ -417,15 +464,64 @@ extern const Logger Log;
 
 } // namespace spark
 
+// spark::LogCategoryFilter
+inline spark::LogCategoryFilter::LogCategoryFilter(String category, LogLevel level) :
+        cat_(category),
+        level_(level) {
+}
+
+inline spark::LogCategoryFilter::LogCategoryFilter(const char *category, LogLevel level) :
+        cat_(category),
+        level_(level) {
+}
+
+inline spark::LogCategoryFilter::LogCategoryFilter(const char *category, size_t length, LogLevel level) :
+        cat_(category, length),
+        level_(level) {
+}
+
+inline const char* spark::LogCategoryFilter::category() const {
+    return cat_.c_str();
+}
+
+inline LogLevel spark::LogCategoryFilter::level() const {
+    return level_;
+}
+
+// spark::LogFilter
+inline LogLevel spark::LogFilter::level() const {
+    return level_;
+}
+
 // spark::LogHandler
+inline spark::LogHandler::LogHandler(LogLevel level) :
+        filter_(level) {
+}
+
+inline spark::LogHandler::LogHandler(LogLevel level, LogCategoryFilters filters) :
+        filter_(level, filters) {
+}
+
+inline LogLevel spark::LogHandler::level() const {
+    return filter_.level();
+}
+
+inline LogLevel spark::LogHandler::level(const char *category) const {
+    return filter_.level(category);
+}
+
+inline const char* spark::LogHandler::levelName(LogLevel level) {
+    return log_level_name(level, nullptr);
+}
+
 inline void spark::LogHandler::message(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) {
-    if (level >= categoryLevel(category)) {
+    if (level >= filter_.level(category)) {
         logMessage(msg, level, category, attr);
     }
 }
 
 inline void spark::LogHandler::write(const char *data, size_t size, LogLevel level, const char *category) {
-    if (level >= categoryLevel(category)) {
+    if (level >= filter_.level(category)) {
         write(data, size);
     }
 }
@@ -434,16 +530,8 @@ inline void spark::LogHandler::write(const char *data, size_t size) {
     // Default implementation does nothing
 }
 
-inline LogLevel spark::LogHandler::defaultLevel() const {
-    return level_;
-}
-
-inline const char* spark::LogHandler::levelName(LogLevel level) {
-    return log_level_name(level, nullptr);
-}
-
 // spark::StreamLogHandler
-inline spark::StreamLogHandler::StreamLogHandler(Stream &stream, LogLevel level, const Filters &filters) :
+inline spark::StreamLogHandler::StreamLogHandler(Stream &stream, LogLevel level, LogCategoryFilters filters) :
         LogHandler(level, filters),
         stream_(&stream) {
 }
