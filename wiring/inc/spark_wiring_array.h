@@ -28,11 +28,11 @@
 #pragma GCC diagnostic ignored "-Wstrict-overflow"
 
 // GCC didn't support std::is_trivially_copyable trait until 5.1.0
-//#if defined(__GNUC__) && (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 < 050100)
+#if defined(__GNUC__) && (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 < 50100)
 #define PARTICLE_ARRAY_TRIVIALLY_COPYABLE_TRAIT std::is_pod
-//#else
-//#define PARTICLE_ARRAY_TRIVIALLY_COPYABLE_TRAIT std::is_trivially_copyable
-//#endif
+#else
+#define PARTICLE_ARRAY_TRIVIALLY_COPYABLE_TRAIT std::is_trivially_copyable
+#endif
 
 // Helper macros for SFINAE-based method selection
 #define PARTICLE_ARRAY_ENABLE_IF_TRIVIALLY_COPYABLE(T) \
@@ -256,7 +256,18 @@ private:
         return nullptr;
     }
 
-    static T* rfind(T* p, T* end, const T& value) {
+    // FIXME: template<typename PointerT>
+    static const T* find(const T* p, const T* end, const T& value) {
+        while (p < end) {
+            if (*p == value) {
+                return p;
+            }
+            ++p;
+        }
+        return nullptr;
+    }
+
+    static const T* rfind(const T* p, const T* end, const T& value) {
         --p;
         --end;
         while (end > p) {
