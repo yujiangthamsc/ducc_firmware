@@ -18,15 +18,15 @@
 #ifndef SPARK_WIRING_LOGGING_H
 #define SPARK_WIRING_LOGGING_H
 
-#include <initializer_list>
-#include <vector>
 #include <cstring>
 #include <cstdarg>
 
 #include "logging.h"
 
+#include "spark_wiring_json.h"
 #include "spark_wiring_print.h"
 #include "spark_wiring_string.h"
+#include "spark_wiring_thread.h"
 #include "spark_wiring_array.h"
 
 namespace spark {
@@ -151,21 +151,16 @@ private:
 class StreamLogHandler: public LogHandler {
 public:
     /*!
-        \brief Output stream type.
-    */
-    typedef Print Stream;
-
-    /*!
         \brief Constructor.
         \param stream Output stream.
         \param level Default logging level.
         \param filters Category filters.
     */
-    explicit StreamLogHandler(Stream &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
+    explicit StreamLogHandler(Print &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
     /*!
         \brief Returns output stream.
     */
-    Stream* stream() const;
+    Print* stream() const;
 
 protected:
     /*!
@@ -196,7 +191,17 @@ protected:
     void write(const char *str);
 
 private:
-    Stream *stream_;
+    Print *stream_;
+};
+
+class JSONLogHandler: public StreamLogHandler {
+public:
+    using StreamLogHandler::StreamLogHandler;
+
+    virtual void logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) override;
+
+private:
+    void writeString(const char *str);
 };
 
 class AttributedLogger;
@@ -416,6 +421,15 @@ private:
     friend class Logger;
 };
 
+// NOTE: This is an experimental API and is subject to change
+class LogHandlerFactory {
+public:
+    virtual ~LogHandlerFactory() = default;
+
+    virtual LogHandler* createHandler(const JSONString &type, LogLevel level, LogCategoryFilters filters, Print *stream, const JSONValue &params) = 0;
+    virtual void destroyHandler(LogHandler *handler);
+};
+
 /*!
     \brief Log manager.
 
@@ -425,17 +439,38 @@ private:
 class LogManager {
 public:
     /*!
-        \brief Registers log handler globally.
-        \param handler Handler instance.
-
-        Note that this method doesn't affect ownership over the handler object.
+        \brief Destructor.
     */
-    void addHandler(LogHandler *handler);
+    ~LogManager();
+    /*!
+        \brief Registers log handler.
+        \param handler Handler instance.
+        \return `false` in case of error.
+
+        \note Log manager doesn't take ownership over the handler instance.
+    */
+    bool addHandler(LogHandler *handler);
     /*!
         \brief Unregisters log handler.
         \param handler Handler instance.
     */
     void removeHandler(LogHandler *handler);
+    /*!
+        \brief Registers log handler factory.
+        \param factory Factory instance.
+        \return `false` in case of error.
+
+        \note Log manager doesn't take ownership over the factory instance.
+    */
+    bool addHandlerFactory(LogHandlerFactory *factory);
+    /*!
+        \brief Unregisters log handler factory.
+        \param factory Factory instance.
+    */
+    void removeHandlerFactory(LogHandlerFactory *factory);
+
+    bool processControlRequest(const char *req, size_t reqSize, char *rep, size_t *repSize, int fmt);
+
     /*!
         \brief Returns log manager's instance.
     */
@@ -446,15 +481,22 @@ public:
     LogManager& operator=(const LogManager&) = delete;
 
 private:
-    std::vector<LogHandler*> handlers_;
+    class JSONRequestHandler;
+    struct NamedHandler;
+
+    Array<LogHandlerFactory*> factories_;
+    Array<LogHandler*> handlers_;
+    Array<NamedHandler> namedHandlers_;
 
     // This class is instantiated via instance() method
-    LogManager() = default;
+    LogManager();
 
     // System callbacks
     static void logMessage(const char *msg, int level, const char *category, const LogAttributes *attr, void *reserved);
     static void logWrite(const char *data, size_t size, int level, const char *category, void *reserved);
     static int logEnabled(int level, const char *category, void *reserved);
+
+    friend class JSONRequestHandler;
 };
 
 /*!
@@ -531,7 +573,7 @@ inline void spark::LogHandler::write(const char *data, size_t size) {
 }
 
 // spark::StreamLogHandler
-inline spark::StreamLogHandler::StreamLogHandler(Stream &stream, LogLevel level, LogCategoryFilters filters) :
+inline spark::StreamLogHandler::StreamLogHandler(Print &stream, LogLevel level, LogCategoryFilters filters) :
         LogHandler(level, filters),
         stream_(&stream) {
 }
@@ -540,7 +582,7 @@ inline void spark::StreamLogHandler::write(const char *data, size_t size) {
     stream_->write((const uint8_t*)data, size);
 }
 
-inline spark::StreamLogHandler::Stream* spark::StreamLogHandler::stream() const {
+inline Print* spark::StreamLogHandler::stream() const {
     return stream_;
 }
 
@@ -755,6 +797,11 @@ inline spark::AttributedLogger& spark::AttributedLogger::details(const char *str
 
 inline void spark::AttributedLogger::log(LogLevel level, const char *fmt, va_list args) {
     log_message_v(level, name_, &attr_, nullptr, fmt, args);
+}
+
+// spark::LogHandlerFactory
+inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
+    delete handler;
 }
 
 #endif // SPARK_WIRING_LOGGING_H
