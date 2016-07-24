@@ -21,8 +21,56 @@
 
 #include <string.h>
 #include "active_object.h"
+#include "disable_irq.h"
 #include "concurrent_hal.h"
 #include "timer_hal.h"
+
+ISRAsyncTaskPool::ISRAsyncTaskPool(size_t size) :
+    tasks(nullptr),
+    availTask(nullptr)
+{
+    if (size)
+    {
+        tasks = (ISRAsyncTask*)malloc(size * sizeof(ISRAsyncTask));
+        if (tasks) {
+            for (size_t i = 0; i < size; ++i)
+            {
+                ISRAsyncTask* task = tasks + i;
+                task->pool = this;
+                if (i != size - 1)
+                {
+                    task->next = task + 1;
+                }
+            }
+        }
+        availTask = tasks;
+    }
+}
+
+ISRAsyncTaskPool::~ISRAsyncTaskPool()
+{
+    free(tasks);
+}
+
+ISRAsyncTask* ISRAsyncTaskPool::take()
+{
+    SPARK_ASSERT(HAL_IsISR());
+    DisableIRQ disableIrq; // Disable interrupts to prevent preemption of this ISR
+    ISRAsyncTask* task = availTask;
+    if (task)
+    {
+        availTask = task->next;
+    }
+    return task;
+}
+
+void ISRAsyncTaskPool::release(ISRAsyncTask* task)
+{
+    DisableIRQ disableIrq;
+    task->next = availTask;
+    availTask = task;
+}
+
 
 void ActiveObjectBase::start_thread()
 {
@@ -72,6 +120,23 @@ bool ActiveObjectBase::process()
 void ActiveObjectBase::run_active_object(ActiveObjectBase* object)
 {
     object->run();
+}
+
+bool ActiveObjectQueue::invokeAsyncFromISR(ISRAsyncTask::HandlerFunc func, void* data)
+{
+    ISRAsyncTask* task = isrTaskPool.take();
+    if (!task)
+    {
+        return false;
+    }
+    task->reset(func, data);
+    Item item = task;
+    if (!put(item))
+    {
+        isrTaskPool.release(task);
+        return false;
+    }
+    return true;
 }
 
 #endif
