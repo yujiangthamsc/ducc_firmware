@@ -698,13 +698,13 @@ CATCH_TEST_CASE("Logger API") {
     CATCH_SECTION("additional attributes") {
         TestLogHandler log(LOG_LEVEL_ALL);
         Logger logger;
-        logger.log("");
+        logger.log("%s", "");
         log.next().hasCode(false).hasDetails(false); // No additional attributes
         // LogAttributes::code
-        logger.code(-1).log("");
+        logger.code(-1).log("%s", "");
         log.next().codeEquals(-1);
         // LogAttributes::details
-        logger.details("details").info("");
+        logger.details("details").info("%s", "");
         log.next().detailsEquals("details");
     }
     CATCH_SECTION("direct logging") {

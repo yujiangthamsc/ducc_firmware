@@ -22,6 +22,7 @@
 #include <cstdarg>
 
 #include "logging.h"
+#include "system_control.h"
 
 #include "spark_wiring_json.h"
 #include "spark_wiring_print.h"
@@ -430,6 +431,15 @@ public:
     virtual void destroyHandler(LogHandler *handler);
 };
 
+// NOTE: This is an experimental API and is subject to change
+class OutputStreamFactory {
+public:
+    virtual ~OutputStreamFactory() = default;
+
+    virtual Print* createStream(const JSONString &type, const JSONValue &params) = 0;
+    virtual void destroyStream(Print *stream);
+};
+
 /*!
     \brief Log manager.
 
@@ -468,9 +478,28 @@ public:
         \param factory Factory instance.
     */
     void removeHandlerFactory(LogHandlerFactory *factory);
+    /*!
+        \brief Registers output stream factory.
+        \param factory Factory instance.
+        \return `false` in case of error.
 
-    bool processControlRequest(const char *req, size_t reqSize, char *rep, size_t *repSize, int fmt);
-
+        \note Log manager doesn't take ownership over the factory instance.
+    */
+    bool addStreamFactory(OutputStreamFactory *factory);
+    /*!
+        \brief Unregisters output stream factory.
+        \param factory Factory instance.
+    */
+    void removeStreamFactory(OutputStreamFactory *factory);
+    /*!
+        \brief Performs processing of a configuration request.
+        \param req Request data.
+        \param reqSize Request data size.
+        \param rep Buffer for reply data.
+        \param repSize Reply data size (should be initialized with buffer size).
+        \param fmt Request format.
+    */
+    bool processRequest(const char *req, size_t reqSize, char *rep, size_t *repSize, DataFormat fmt);
     /*!
         \brief Returns log manager's instance.
     */
@@ -482,14 +511,28 @@ public:
 
 private:
     class JSONRequestHandler;
-    struct NamedHandler;
 
-    Array<LogHandlerFactory*> factories_;
-    Array<LogHandler*> handlers_;
-    Array<NamedHandler> namedHandlers_;
+    struct FactoryHandler {
+        String id;
+        LogHandler *handler;
+        LogHandlerFactory *handlerFactory;
+        Print *stream;
+        OutputStreamFactory *streamFactory;
+    };
+
+    Array<LogHandlerFactory*> handlerFactories_;
+    Array<OutputStreamFactory*> streamFactories_;
+    Array<FactoryHandler> factoryHandlers_;
+    Array<LogHandler*> activeHandlers_;
 
     // This class is instantiated via instance() method
     LogManager();
+
+    // Called by JSONRequestHandler
+    bool addFactoryHandler(const JSONString &handlerId, const JSONString &handlerType, const JSONValue &handlerParams,
+            LogLevel level, LogCategoryFilters filters, const JSONString &streamType, const JSONValue &streamParams);
+    bool removeFactoryHandler(const JSONString &handlerId);
+    const Array<FactoryHandler>& factoryHandlers() const;
 
     // System callbacks
     static void logMessage(const char *msg, int level, const char *category, const LogAttributes *attr, void *reserved);
@@ -802,6 +845,11 @@ inline void spark::AttributedLogger::log(LogLevel level, const char *fmt, va_lis
 // spark::LogHandlerFactory
 inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
     delete handler;
+}
+
+// spark::OutputStreamFactory
+inline void spark::OutputStreamFactory::destroyStream(Print *stream) {
+    delete stream;
 }
 
 #endif // SPARK_WIRING_LOGGING_H
