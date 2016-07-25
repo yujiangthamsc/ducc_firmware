@@ -29,7 +29,7 @@ include $(MODULE_PATH)/tests/tests.mk
 endif
 
 # the root of the application
-APPROOT := $(SOURCE_PATH)$(USRSRC)
+APPROOT := $(call remove_slash,$(SOURCE_PATH)/$(USRSRC))
 
 ifneq ($(wildcard $(APPROOT)/project.properties),)
 	ifneq ($(wildcard $(APPROOT)/src),)

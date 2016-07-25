@@ -45,4 +45,13 @@ load build
     file_size_range $outdir/app.bin 2 5 K 
 }
 
+@test "can build a v2 builtin app with implicity set vendored v2 libraries" {
+    cd modules/photon/user-part
+    run make $make_args PLATFORM=photon APP=vendored_lib
+    outdir=../build/target/user-part/platform-6-m
+    [ -s $outdir/vendored_lib.bin ]
+    file_size_range $outdir/vendored_lib.bin 2 5 K 
+}
+
+
 
