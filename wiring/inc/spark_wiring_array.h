@@ -23,10 +23,10 @@
 #include <type_traits>
 #include <iterator>
 #include <utility>
-
+/*
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstrict-overflow"
-
+*/
 // GCC didn't support std::is_trivially_copyable trait until 5.1.0
 #if defined(__GNUC__) && (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 < 50100)
 #define PARTICLE_ARRAY_TRIVIALLY_COPYABLE_TRAIT std::is_pod
@@ -161,7 +161,7 @@ private:
 
     template<PARTICLE_ARRAY_ENABLE_IF_TRIVIALLY_COPYABLE(T)>
     bool realloc(int n) {
-        if (n >= size_) {
+        //if (n >= size_) {
             T* d = nullptr;
             if (n > 0) {
                 d = (T*)AllocatorT::realloc(data_, n * sizeof(T));
@@ -173,13 +173,13 @@ private:
             }
             data_ = d;
             capacity_ = n;
-        }
+        //}
         return true;
     }
 
     template<PARTICLE_ARRAY_ENABLE_IF_NOT_TRIVIALLY_COPYABLE(T)>
     bool realloc(int n) {
-        if (n >= size_) {
+        //if (n >= size_) {
             T* d = nullptr;
             if (n > 0) {
                 d = (T*)AllocatorT::malloc(n * sizeof(T));
@@ -191,7 +191,7 @@ private:
             AllocatorT::free(data_);
             data_ = d;
             capacity_ = n;
-        }
+        //}
         return true;
     }
 
@@ -979,7 +979,7 @@ inline void spark::swap(Array<T, AllocatorT>& array, Array<T, AllocatorT>& array
     swap(array.size_, array2.size_);
     swap(array.capacity_, array2.capacity_);
 }
-
+/*
 #pragma GCC diagnostic pop
-
+*/
 #endif // SPARK_WIRING_ARRAY_H

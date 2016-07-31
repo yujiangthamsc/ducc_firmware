@@ -197,12 +197,12 @@ private:
 
 class JSONLogHandler: public StreamLogHandler {
 public:
-    using StreamLogHandler::StreamLogHandler;
+    explicit JSONLogHandler(Print &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
 
     virtual void logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) override;
 
 private:
-    void writeString(const char *str);
+    JSONStreamWriter writer_;
 };
 
 class AttributedLogger;
@@ -427,7 +427,8 @@ class LogHandlerFactory {
 public:
     virtual ~LogHandlerFactory() = default;
 
-    virtual LogHandler* createHandler(const JSONString &type, LogLevel level, LogCategoryFilters filters, Print *stream, const JSONValue &params) = 0;
+    virtual LogHandler* createHandler(const JSONString &type, const JSONValue &params, Print *stream, LogLevel level,
+            const LogCategoryFilters &filters) = 0;
     virtual void destroyHandler(LogHandler *handler);
 };
 
@@ -454,6 +455,7 @@ public:
     ~LogManager();
     /*!
         \brief Registers log handler.
+
         \param handler Handler instance.
         \return `false` in case of error.
 
@@ -462,11 +464,13 @@ public:
     bool addHandler(LogHandler *handler);
     /*!
         \brief Unregisters log handler.
+
         \param handler Handler instance.
     */
     void removeHandler(LogHandler *handler);
     /*!
         \brief Registers log handler factory.
+
         \param factory Factory instance.
         \return `false` in case of error.
 
@@ -475,11 +479,13 @@ public:
     bool addHandlerFactory(LogHandlerFactory *factory);
     /*!
         \brief Unregisters log handler factory.
+
         \param factory Factory instance.
     */
     void removeHandlerFactory(LogHandlerFactory *factory);
     /*!
         \brief Registers output stream factory.
+
         \param factory Factory instance.
         \return `false` in case of error.
 
@@ -488,18 +494,39 @@ public:
     bool addStreamFactory(OutputStreamFactory *factory);
     /*!
         \brief Unregisters output stream factory.
+
         \param factory Factory instance.
     */
     void removeStreamFactory(OutputStreamFactory *factory);
     /*!
-        \brief Performs processing of a configuration request.
-        \param req Request data.
-        \param reqSize Request data size.
-        \param rep Buffer for reply data.
-        \param repSize Reply data size (should be initialized with buffer size).
-        \param fmt Request format.
+        \brief Creates and registers a named log handler.
+
+        \param id Handler ID.
+        \param handlerType Handler type name.
+        \param handlerParams Type-specific handler parameters.
+        \param streamType Stream type name.
+        \param streamParams Type-specific stream parameters.
+        \param level Default logging level.
+        \param filters Category filters.
+
+        \return `false` in case of error.
     */
-    bool processRequest(const char *req, size_t reqSize, char *rep, size_t *repSize, DataFormat fmt);
+    bool addNamedHandler(const JSONString &id, const JSONString &handlerType, const JSONValue &handlerParams,
+            const JSONString &streamType, const JSONValue &streamParams, LogLevel level, LogCategoryFilters filters);
+    /*!
+        \brief Unregisters and destroys a named log handler.
+
+        \param id Handler ID.
+    */
+    void removeNamedHandler(const JSONString &id);
+    /*!
+        \brief Enumerates named log handlers.
+
+        \param callback Callback function invoked for each active handler.
+        \param data User data.
+    */
+    void enumNamedHandlers(void(*callback)(const char *id, void *data), void *data);
+
     /*!
         \brief Returns log manager's instance.
     */
@@ -510,37 +537,43 @@ public:
     LogManager& operator=(const LogManager&) = delete;
 
 private:
-    class JSONRequestHandler;
-
-    struct FactoryHandler {
-        String id;
-        LogHandler *handler;
-        LogHandlerFactory *handlerFactory;
-        Print *stream;
-        OutputStreamFactory *streamFactory;
-    };
+    struct NamedHandler;
 
     Array<LogHandlerFactory*> handlerFactories_;
     Array<OutputStreamFactory*> streamFactories_;
-    Array<FactoryHandler> factoryHandlers_;
+    Array<NamedHandler> namedHandlers_;
     Array<LogHandler*> activeHandlers_;
 
-    // This class is instantiated via instance() method
+#if PLATFORM_THREADING
+    Mutex mutex_; // TODO: Use read-write lock?
+#endif
+
+    // This class can be instantiated only via instance() method
     LogManager();
 
-    // Called by JSONRequestHandler
-    bool addFactoryHandler(const JSONString &handlerId, const JSONString &handlerType, const JSONValue &handlerParams,
-            LogLevel level, LogCategoryFilters filters, const JSONString &streamType, const JSONValue &streamParams);
-    bool removeFactoryHandler(const JSONString &handlerId);
-    const Array<FactoryHandler>& factoryHandlers() const;
+    int namedHandlerIndex(const JSONString &id) const;
+    void destroyNamedHandler(const NamedHandler &h);
 
     // System callbacks
     static void logMessage(const char *msg, int level, const char *category, const LogAttributes *attr, void *reserved);
     static void logWrite(const char *data, size_t size, int level, const char *category, void *reserved);
     static int logEnabled(int level, const char *category, void *reserved);
-
-    friend class JSONRequestHandler;
 };
+
+/*!
+    \brief Performs processing of a configuration request.
+
+    \param reqData Request data.
+    \param reqSize Request data size.
+    \param repData Buffer for reply data.
+    \param repSize Reply data size.
+    \param fmt Request format.
+
+    \return `false` in case of error.
+
+    \note `repSize` should be initialized with maximum size available for reply data.
+*/
+bool logProcessConfigRequest(const char *reqData, size_t reqSize, char *repData, size_t *repSize, DataFormat fmt);
 
 /*!
     \brief Default logger instance.
@@ -631,6 +664,12 @@ inline Print* spark::StreamLogHandler::stream() const {
 
 inline void spark::StreamLogHandler::write(const char *str) {
     write(str, strlen(str));
+}
+
+// spark::JSONLogHandler
+inline spark::JSONLogHandler::JSONLogHandler(Print &stream, LogLevel level, LogCategoryFilters filters) :
+        StreamLogHandler(stream, level, filters),
+        writer_(stream) {
 }
 
 // spark::Logger
