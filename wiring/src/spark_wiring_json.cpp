@@ -17,7 +17,11 @@
 
 #include "spark_wiring_json.h"
 
+#include <algorithm>
+
+#include <cstdio>
 #include <cstdlib>
+#include <cstdarg>
 
 namespace {
 
@@ -103,9 +107,14 @@ spark::JSONString::JSONString(const jsmntok_t *token, const char *data) :
     }
 }
 
-bool spark::JSONString::operator==(const char *s) const {
-    const size_t n = strlen(s);
-    return n_ == n && strncmp(d_, s, n) == 0;
+bool spark::JSONString::operator==(const char *str) const {
+    const size_t n = strlen(str);
+    return n_ == n && strncmp(d_, str, n) == 0;
+}
+
+bool spark::JSONString::operator==(const String &str) const {
+    const size_t n = str.length();
+    return n_ == n && strncmp(d_, str.c_str(), n) == 0;
 }
 
 // spark::JSONArrayIterator
@@ -172,4 +181,154 @@ bool spark::JSONParser::parse(const char *data, size_t size) {
     swap(t_, tokens);
     d_ = data;
     return true;
+}
+
+// spark::JSONWriter
+spark::JSONWriter& spark::JSONWriter::beginArray() {
+    writeSeparator();
+    write('[');
+    state_ = BEGIN;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::endArray() {
+    write(']');
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::beginObject() {
+    writeSeparator();
+    write('{');
+    state_ = BEGIN;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::endObject() {
+    write('}');
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::name(const char *name, size_t size) {
+    writeSeparator();
+    writeEscaped(name, size);
+    state_ = VALUE;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::value(bool val) {
+    writeSeparator();
+    if (val) {
+        write("true", 4);
+    } else {
+        write("false", 5);
+    }
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::value(int val) {
+    writeSeparator();
+    printf("%d", val);
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::value(unsigned val) {
+    writeSeparator();
+    printf("%u", val);
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::value(float val) {
+    writeSeparator();
+    printf("%f", val);
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::value(const char *val, size_t size) {
+    writeSeparator();
+    writeEscaped(val, size);
+    state_ = ELEMENT;
+    return *this;
+}
+
+spark::JSONWriter& spark::JSONWriter::nullValue() {
+    writeSeparator();
+    write("null", 4);
+    state_ = ELEMENT;
+    return *this;
+}
+
+void spark::JSONWriter::printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char buf[16];
+    const int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if ((size_t)n >= sizeof(buf)) {
+        char buf[n + 1]; // Use larger buffer
+        va_start(args, fmt);
+        if (vsnprintf(buf, sizeof(buf), fmt, args) > 0) {
+            write(buf, n);
+        }
+        va_end(args);
+    } else if (n > 0) {
+        write(buf, n);
+    }
+    va_end(args);
+}
+
+void spark::JSONWriter::writeSeparator() {
+    switch (state_) {
+    case ELEMENT:
+        write(',');
+        break;
+    case VALUE:
+        write(':');
+        break;
+    default:
+        break;
+    }
+}
+
+void spark::JSONWriter::writeEscaped(const char *str, size_t size) {
+    write('"');
+    const char *s = str;
+    const char* const end = str + size;
+    while (s != end) {
+        const char c = *s;
+        if (c == '"' || c == '\\' || (c >= 0 && c <= 0x1f)) { // RFC 7159, 7. Strings
+            write(str, s - str); // Write preceeding characters
+            write('\\');
+            if (c <= 0x1f) {
+                printf("u%04x", (unsigned)c); // Control characters are written in hex, e.g. "\u001f"
+            } else {
+                write(c);
+            }
+            str = s + 1;
+        }
+        ++s;
+    }
+    write(str, s - str); // Write remaining part of the string
+    write('"');
+}
+
+// spark::JSONBufferWriter
+void spark::JSONBufferWriter::write(const char *data, size_t size) {
+    if (n_ < bufSize_) {
+        memcpy(buf_ + n_, data, std::min(size, bufSize_ - n_));
+    }
+    n_ += size;
+}
+
+void spark::JSONBufferWriter::printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    const int n = vsnprintf(buf_ + n_, (n_ < bufSize_) ? bufSize_ - n_ : 0, fmt, args);
+    va_end(args);
+    n_ += n;
 }

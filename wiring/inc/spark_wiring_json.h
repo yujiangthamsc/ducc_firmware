@@ -22,6 +22,7 @@
 
 #include "jsmn.h"
 
+#include "spark_wiring_print.h"
 #include "spark_wiring_string.h"
 #include "spark_wiring_array.h"
 
@@ -84,8 +85,10 @@ public:
 
     operator String() const;
 
-    bool operator==(const char *s) const;
-    bool operator!=(const char *s) const;
+    bool operator==(const char *str) const;
+    bool operator!=(const char *str) const;
+    bool operator==(const String &str) const;
+    bool operator!=(const String &str) const;
 
 private:
     const char *d_;
@@ -122,7 +125,7 @@ public:
 
     bool next();
 
-    JSONString key() const;
+    JSONString name() const;
     JSONValue value() const;
 
     size_t count() const;
@@ -151,6 +154,76 @@ public:
 private:
     Array<jsmntok_t> t_;
     const char *d_;
+};
+
+class JSONWriter {
+public:
+    JSONWriter();
+    virtual ~JSONWriter() = default;
+
+    JSONWriter& beginArray();
+    JSONWriter& endArray();
+    JSONWriter& beginObject();
+    JSONWriter& endObject();
+    JSONWriter& name(const char *name);
+    JSONWriter& name(const char *name, size_t size);
+    JSONWriter& name(const String &name);
+    JSONWriter& value(bool val);
+    JSONWriter& value(int val);
+    JSONWriter& value(unsigned val);
+    JSONWriter& value(float val);
+    JSONWriter& value(const char *val);
+    JSONWriter& value(const char *val, size_t size);
+    JSONWriter& value(const String &val);
+    JSONWriter& nullValue();
+
+protected:
+    virtual void write(const char *data, size_t size) = 0;
+    virtual void printf(const char *fmt, ...);
+
+private:
+    enum State {
+        BEGIN, // Beginning of the document, an array, or an object
+        ELEMENT, // Expecting next element
+        VALUE // Expecting property value
+    };
+
+    State state_;
+
+    void writeSeparator();
+    void writeEscaped(const char *str, size_t size);
+    void write(char c);
+};
+
+class JSONStreamWriter: public JSONWriter {
+public:
+    explicit JSONStreamWriter(Print &stream);
+
+    Print* stream() const;
+
+protected:
+    virtual void write(const char *data, size_t size) override;
+
+private:
+    Print &strm_;
+};
+
+class JSONBufferWriter: public JSONWriter {
+public:
+    explicit JSONBufferWriter(char *buf, size_t size);
+
+    char* buffer() const;
+    size_t bufferSize() const;
+
+    size_t size() const;
+
+protected:
+    virtual void write(const char *data, size_t size) override;
+    virtual void printf(const char *fmt, ...) override;
+
+private:
+    char *buf_;
+    size_t bufSize_, n_;
 };
 
 } // namespace spark
@@ -220,8 +293,12 @@ inline spark::JSONString::operator String() const {
     return String(d_, n_);
 }
 
-inline bool spark::JSONString::operator!=(const char *s) const {
-    return !operator==(s);
+inline bool spark::JSONString::operator!=(const char *str) const {
+    return !operator==(str);
+}
+
+inline bool spark::JSONString::operator!=(const String &str) const {
+    return !operator==(str);
 }
 
 // spark::JSONArrayIterator
@@ -236,7 +313,7 @@ inline size_t spark::JSONArrayIterator::count() const {
     return n_;
 }
 
-inline spark::JSONString spark::JSONObjectIterator::key() const {
+inline spark::JSONString spark::JSONObjectIterator::name() const {
     return JSONString(k_, d_);
 }
 
@@ -294,6 +371,63 @@ inline spark::JSONValue spark::JSONParser::value() const {
 
 inline bool spark::JSONParser::isValid() const {
     return !t_.isEmpty();
+}
+
+// spark::JSONWriter
+inline spark::JSONWriter::JSONWriter() :
+        state_(BEGIN) {
+}
+
+inline spark::JSONWriter& spark::JSONWriter::name(const char *name) {
+    return this->name(name, strlen(name));
+}
+
+inline spark::JSONWriter& spark::JSONWriter::name(const String &name) {
+    return this->name(name.c_str(), name.length());
+}
+
+inline spark::JSONWriter& spark::JSONWriter::value(const char *val) {
+    return value(val, strlen(val));
+}
+
+inline spark::JSONWriter& spark::JSONWriter::value(const String &val) {
+    return value(val.c_str(), val.length());
+}
+
+inline void spark::JSONWriter::write(char c) {
+    write(&c, 1);
+}
+
+// spark::JSONStreamWriter
+inline spark::JSONStreamWriter::JSONStreamWriter(Print &stream) :
+        strm_(stream) {
+}
+
+inline Print* spark::JSONStreamWriter::stream() const {
+    return &strm_;
+}
+
+inline void spark::JSONStreamWriter::write(const char *data, size_t size) {
+    strm_.write((const uint8_t*)data, size);
+}
+
+// spark::JSONBufferWriter
+inline spark::JSONBufferWriter::JSONBufferWriter(char *buf, size_t size) :
+        buf_(buf),
+        bufSize_(size),
+        n_(0) {
+}
+
+inline char* spark::JSONBufferWriter::buffer() const {
+    return buf_;
+}
+
+inline size_t spark::JSONBufferWriter::bufferSize() const {
+    return bufSize_;
+}
+
+inline size_t spark::JSONBufferWriter::size() const {
+    return n_;
 }
 
 #endif // SPARK_WIRING_JSON_H
