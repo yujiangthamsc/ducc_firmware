@@ -20,10 +20,12 @@
 #if PLATFORM_THREADING
 
 #include <string.h>
+
 #include "active_object.h"
-#include "disable_irq.h"
 #include "concurrent_hal.h"
 #include "timer_hal.h"
+
+#include "spark_wiring_interrupts.h"
 
 ISRAsyncTaskPool::ISRAsyncTaskPool(size_t size) :
     tasks(nullptr),
@@ -58,7 +60,7 @@ ISRAsyncTaskPool::~ISRAsyncTaskPool()
 
 ISRAsyncTask* ISRAsyncTaskPool::take()
 {
-    DisableIRQ disableIrq; // Disable interrupts to prevent preemption of this ISR
+    const AtomicSection disableIrq; // Disable interrupts to prevent preemption of this ISR
     ISRAsyncTask* task = availTask;
     if (task)
     {
@@ -69,7 +71,7 @@ ISRAsyncTask* ISRAsyncTaskPool::take()
 
 void ISRAsyncTaskPool::release(ISRAsyncTask* task)
 {
-    DisableIRQ disableIrq;
+    const AtomicSection disableIrq;
     task->next = availTask;
     availTask = task;
 }

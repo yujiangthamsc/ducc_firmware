@@ -542,17 +542,14 @@ int spark::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size
 
 // spark::StreamLogHandler
 void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) {
-    char buf[16];
-    const char *s;
-    size_t n;
+    const char *s = nullptr;
     // Timestamp
     if (attr.has_time) {
-        n = snprintf(buf, sizeof(buf), "%010u ", (unsigned)attr.time);
-        write(buf, std::min(n, sizeof(buf) - 1));
+        printf("%010u ", (unsigned)attr.time);
     }
     // Category
     if (category) {
-        write("[", 1);
+        write('[');
         write(category);
         write("] ", 2);
     }
@@ -561,9 +558,8 @@ void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const 
         s = extractFileName(attr.file); // Strip directory path
         write(s); // File name
         if (attr.has_line) {
-            write(":", 1);
-            n = snprintf(buf, sizeof(buf), "%d", (int)attr.line); // Line number
-            write(buf, std::min(n, sizeof(buf) - 1));
+            write(':');
+            printf("%d", (int)attr.line); // Line number
         }
         if (attr.has_function) {
             write(", ", 2);
@@ -573,6 +569,7 @@ void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const 
     }
     // Function name
     if (attr.has_function) {
+        size_t n = 0;
         s = extractFuncName(attr.function, &n); // Strip argument and return types
         write(s, n);
         write("(): ", 4);
@@ -590,8 +587,7 @@ void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const 
         write(" [", 2);
         if (attr.has_code) {
             write("code = ", 7);
-            n = snprintf(buf, sizeof(buf), "%" PRIiPTR, (intptr_t)attr.code);
-            write(buf, std::min(n, sizeof(buf) - 1));
+            printf("%" PRIiPTR, (intptr_t)attr.code);
         }
         if (attr.has_details) {
             if (attr.has_code) {
@@ -600,7 +596,7 @@ void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const 
             write("details = ", 10);
             write(attr.details);
         }
-        write("]", 1);
+        write(']');
     }
     write("\r\n", 2);
 }

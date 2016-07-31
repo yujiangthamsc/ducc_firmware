@@ -190,6 +190,19 @@ protected:
         This method is equivalent to `write(str, strlen(str))`.
     */
     void write(const char *str);
+    /*!
+        \brief Writes character to output stream.
+        \param c Character.
+    */
+    void write(char c);
+    /*!
+        \brief Formats string and writes it to output stream.
+        \param fmt Format string.
+
+        This method is equivalent to `stream()->printf(fmt, ...)`.
+    */
+    template<typename... ArgsT>
+    void printf(const char *fmt, ArgsT... args);
 
 private:
     Print *stream_;
@@ -655,16 +668,25 @@ inline spark::StreamLogHandler::StreamLogHandler(Print &stream, LogLevel level, 
         stream_(&stream) {
 }
 
-inline void spark::StreamLogHandler::write(const char *data, size_t size) {
-    stream_->write((const uint8_t*)data, size);
-}
-
 inline Print* spark::StreamLogHandler::stream() const {
     return stream_;
 }
 
+inline void spark::StreamLogHandler::write(const char *data, size_t size) {
+    stream_->write((const uint8_t*)data, size);
+}
+
 inline void spark::StreamLogHandler::write(const char *str) {
     write(str, strlen(str));
+}
+
+inline void spark::StreamLogHandler::write(char c) {
+    write(&c, 1);
+}
+
+template<typename... ArgsT>
+inline void spark::StreamLogHandler::printf(const char *fmt, ArgsT... args) {
+    stream_->printf(fmt, args...);
 }
 
 // spark::JSONLogHandler
