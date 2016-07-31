@@ -41,6 +41,10 @@ ISRAsyncTaskPool::ISRAsyncTaskPool(size_t size) :
                 {
                     task->next = task + 1;
                 }
+                else
+                {
+                    task->next = nullptr;
+                }
             }
         }
         availTask = tasks;
@@ -54,7 +58,6 @@ ISRAsyncTaskPool::~ISRAsyncTaskPool()
 
 ISRAsyncTask* ISRAsyncTaskPool::take()
 {
-    SPARK_ASSERT(HAL_IsISR());
     DisableIRQ disableIrq; // Disable interrupts to prevent preemption of this ISR
     ISRAsyncTask* task = availTask;
     if (task)
@@ -124,6 +127,7 @@ void ActiveObjectBase::run_active_object(ActiveObjectBase* object)
 
 bool ActiveObjectQueue::invokeAsyncFromISR(ISRAsyncTask::HandlerFunc func, void* data)
 {
+    SPARK_ASSERT(HAL_IsISR());
     ISRAsyncTask* task = isrTaskPool.take();
     if (!task)
     {
