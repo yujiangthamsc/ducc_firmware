@@ -24,7 +24,7 @@
 
 #include <algorithm>
 #include <cinttypes>
-#include <cstdio>
+#include <memory>
 
 #include "spark_wiring_usbserial.h"
 #include "spark_wiring_usartserial.h"
@@ -330,6 +330,29 @@ private:
     }
 };
 
+// Custom deleter for std::unique_ptr
+template<typename T, typename FactoryT, void(FactoryT::*destroy)(T*)>
+struct FactoryDeleter {
+    FactoryDeleter() : factory(nullptr) {
+    }
+
+    explicit FactoryDeleter(FactoryT *factory) : factory(factory) {
+    }
+
+    void operator()(T *ptr) {
+        if (ptr) {
+            (factory->*destroy)(ptr);
+        }
+    }
+
+    FactoryT *factory;
+};
+
+typedef std::unique_ptr<LogHandler, FactoryDeleter<LogHandler, LogHandlerFactory, &LogHandlerFactory::destroyHandler>>
+        LogHandlerUniquePtr;
+typedef std::unique_ptr<Print, FactoryDeleter<Print, OutputStreamFactory, &OutputStreamFactory::destroyStream>>
+        PrintUniquePtr;
+
 #if PLATFORM_ID == 3
 // GCC on some platforms doesn't provide strchrnul()
 inline const char* strchrnul(const char *s, char c) {
@@ -617,7 +640,7 @@ void spark::JSONLogHandler::logMessage(const char *msg, LogLevel level, const ch
     }
     // Code
     if (attr.has_code) {
-        writer_.name("code", 4).value(attr.code);
+        writer_.name("code", 4).value((int)attr.code);
     }
     // Details
     if (attr.has_details) {
@@ -688,10 +711,8 @@ void spark::LogManager::removeHandlerFactory(LogHandlerFactory *factory) {
             // Destroying all handlers created via the factory that is about to be unregistered
             int i = 0;
             while (i < namedHandlers_.size()) {
-                NamedHandler &h = namedHandlers_[i];
-                if (h.handlerFactory == factory) {
-                    destroyNamedHandler(h);
-                    namedHandlers_.remove(i);
+                if (namedHandlers_[i].handlerFactory == factory) {
+                    removeNamedHandler(i);
                 } else {
                     ++i;
                 }
@@ -715,10 +736,8 @@ void spark::LogManager::removeStreamFactory(OutputStreamFactory *factory) {
             // Destroying all handlers that use streams created via the factory that is about to be unregistered
             int i = 0;
             while (i < namedHandlers_.size()) {
-                NamedHandler &h = namedHandlers_[i];
-                if (h.streamFactory == factory) {
-                    destroyNamedHandler(h);
-                    namedHandlers_.remove(i);
+                if (namedHandlers_[i].streamFactory == factory) {
+                    removeNamedHandler(i);
                 } else {
                     ++i;
                 }
@@ -732,41 +751,49 @@ bool spark::LogManager::addNamedHandler(const JSONString &id, const JSONString &
     WITH_LOCK(mutex_) {
         const int i = namedHandlerIndex(id);
         if (i != -1) {
-            destroyNamedHandler(namedHandlers_[i]); // Destroy existent handler with the same ID
-            namedHandlers_.remove(i);
+            removeNamedHandler(i); // Destroy existent handler with the same ID
         }
         NamedHandler h(id);
         if (!h.id.length()) {
-            return false; // Memory allocation error
+            return false; // Empty handler ID or memory allocation error
         }
         // Create output stream (if necessary)
+        PrintUniquePtr stream;
         if (!streamType.isEmpty()) {
             for (OutputStreamFactory *factory: streamFactories_) {
-                h.stream = factory->createStream(streamType, streamParams);
-                if (h.stream) {
-                    h.streamFactory = factory; // Keep factory instance
+                Print *p = factory->createStream(streamType, streamParams);
+                if (p) {
+                    stream = PrintUniquePtr(p, PrintUniquePtr::deleter_type(factory));
                     break;
                 }
             }
-            if (!h.stream) {
+            if (!stream) {
                 return false; // Unsupported stream type
             }
         }
         // Create log handler
+        LogHandlerUniquePtr handler;
         for (LogHandlerFactory *factory: handlerFactories_) {
-            h.handler = factory->createHandler(handlerType, handlerParams, h.stream, level, filters);
-            if (h.handler) {
-                h.handlerFactory = factory; // Keep factory instance
+            LogHandler *p = factory->createHandler(handlerType, handlerParams, stream.get(), level, filters);
+            if (p) {
+                handler = LogHandlerUniquePtr(p, LogHandlerUniquePtr::deleter_type(factory));
                 break;
             }
         }
-        if (!h.handler) {
+        if (!handler) {
             return false; // Unsupported handler type
         }
-        if (!namedHandlers_.append(h) || !activeHandlers_.append(h.handler)) {
+        h.handler = handler.get();
+        h.handlerFactory = handler.get_deleter().factory; // Keep pointer to factory instance
+        if (stream) {
+            h.stream = stream.get();
+            h.streamFactory = stream.get_deleter().factory;
+        }
+        if (!namedHandlers_.append(std::move(h)) || !activeHandlers_.append(h.handler)) {
             return false;
         }
-        // FIXME: Destroy stream in case of error
+        handler.release(); // Ownership has been transferred to the LogManager
+        stream.release();
     }
     return true;
 }
@@ -782,7 +809,6 @@ void spark::LogManager::removeNamedHandler(const JSONString &id) {
 }
 
 void spark::LogManager::enumNamedHandlers(void(*callback)(const char *id, void *data), void *data) {
-    SPARK_ASSERT(callback);
     WITH_LOCK(mutex_) {
         for (const NamedHandler &handler: namedHandlers_) {
             callback(handler.id.c_str(), data);
@@ -799,12 +825,15 @@ int spark::LogManager::namedHandlerIndex(const JSONString &id) const {
     return -1;
 }
 
-void spark::LogManager::destroyNamedHandler(const NamedHandler &h) {
+void spark::LogManager::removeNamedHandler(int i) {
+    const NamedHandler &h = namedHandlers_.at(i);
     activeHandlers_.removeOne(h.handler);
-    SPARK_ASSERT(h.handlerFactory);
+    destroyNamedHandler(h);
+}
+
+void spark::LogManager::destroyNamedHandler(const NamedHandler &h) {
     h.handlerFactory->destroyHandler(h.handler);
     if (h.stream) {
-        SPARK_ASSERT(h.streamFactory);
         h.streamFactory->destroyStream(h.stream);
     }
 }

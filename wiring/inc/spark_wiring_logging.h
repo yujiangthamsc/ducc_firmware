@@ -552,6 +552,7 @@ private:
     LogManager();
 
     int namedHandlerIndex(const JSONString &id) const;
+    void removeNamedHandler(int i);
     void destroyNamedHandler(const NamedHandler &h);
 
     // System callbacks
