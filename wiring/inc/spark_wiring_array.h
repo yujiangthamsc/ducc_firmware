@@ -23,10 +23,7 @@
 #include <type_traits>
 #include <iterator>
 #include <utility>
-/*
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wstrict-overflow"
-*/
+
 // GCC didn't support std::is_trivially_copyable trait until 5.1.0
 #if defined(__GNUC__) && (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 < 50100)
 #define PARTICLE_ARRAY_TRIVIALLY_COPYABLE_TRAIT std::is_pod
@@ -161,37 +158,33 @@ private:
 
     template<PARTICLE_ARRAY_ENABLE_IF_TRIVIALLY_COPYABLE(T)>
     bool realloc(int n) {
-        //if (n >= size_) {
-            T* d = nullptr;
-            if (n > 0) {
-                d = (T*)AllocatorT::realloc(data_, n * sizeof(T));
-                if (!d) {
-                    return false;
-                }
-            } else {
-                AllocatorT::free(data_);
+        T* d = nullptr;
+        if (n > 0) {
+            d = (T*)AllocatorT::realloc(data_, n * sizeof(T));
+            if (!d) {
+                return false;
             }
-            data_ = d;
-            capacity_ = n;
-        //}
+        } else {
+            AllocatorT::free(data_);
+        }
+        data_ = d;
+        capacity_ = n;
         return true;
     }
 
     template<PARTICLE_ARRAY_ENABLE_IF_NOT_TRIVIALLY_COPYABLE(T)>
     bool realloc(int n) {
-        //if (n >= size_) {
-            T* d = nullptr;
-            if (n > 0) {
-                d = (T*)AllocatorT::malloc(n * sizeof(T));
-                if (!d) {
-                    return false;
-                }
-                move(d, data_, data_ + size_);
+        T* d = nullptr;
+        if (n > 0) {
+            d = (T*)AllocatorT::malloc(n * sizeof(T));
+            if (!d) {
+                return false;
             }
-            AllocatorT::free(data_);
-            data_ = d;
-            capacity_ = n;
-        //}
+            move(d, data_, data_ + size_);
+        }
+        AllocatorT::free(data_);
+        data_ = d;
+        capacity_ = n;
         return true;
     }
 
@@ -326,7 +319,7 @@ inline spark::Array<T, AllocatorT>::Array() :
 
 template<typename T, typename AllocatorT>
 inline spark::Array<T, AllocatorT>::Array(int n) : Array() {
-    if (realloc(n)) {
+    if (n > 0 && realloc(n)) {
         construct(data_, data_ + n);
         size_ = n;
     }
@@ -334,7 +327,7 @@ inline spark::Array<T, AllocatorT>::Array(int n) : Array() {
 
 template<typename T, typename AllocatorT>
 inline spark::Array<T, AllocatorT>::Array(int n, const T& value) : Array() {
-    if (realloc(n)) {
+    if (n > 0 && realloc(n)) {
         construct(data_, data_ + n, value);
         size_ = n;
     }
@@ -342,7 +335,7 @@ inline spark::Array<T, AllocatorT>::Array(int n, const T& value) : Array() {
 
 template<typename T, typename AllocatorT>
 inline spark::Array<T, AllocatorT>::Array(const T* values, int n) : Array() {
-    if (realloc(n)) {
+    if (n > 0 && realloc(n)) {
         copy(data_, values, values + n);
         size_ = n;
     }
@@ -350,7 +343,8 @@ inline spark::Array<T, AllocatorT>::Array(const T* values, int n) : Array() {
 
 template<typename T, typename AllocatorT>
 inline spark::Array<T, AllocatorT>::Array(std::initializer_list<T> values) : Array() {
-    if (realloc(values.size())) {
+    const size_t n = values.size();
+    if (n > 0 && realloc(n)) {
         copy(data_, values.begin(), values.end());
         size_ = values.size();
     }
@@ -360,7 +354,7 @@ template<typename T, typename AllocatorT>
 template<typename IteratorT>
 inline spark::Array<T, AllocatorT>::Array(IteratorT begin, IteratorT end) : Array() {
     const int n = std::distance(begin, end);
-    if (realloc(n)) {
+    if (n > 0 && realloc(n)) {
         copy(data_, begin, end);
         size_ = n;
     }
@@ -371,7 +365,7 @@ inline spark::Array<T, AllocatorT>::Array(const Array<T, AllocatorT>& array, int
     if (n < 0 || i + n > array.size_) {
         n = array.size_ - i;
     }
-    if (realloc(n)) {
+    if (n > 0 && realloc(n)) {
         const T* const p = array.data_ + i;
         copy(data_, p, p + n);
         size_ = n;
@@ -380,7 +374,7 @@ inline spark::Array<T, AllocatorT>::Array(const Array<T, AllocatorT>& array, int
 
 template<typename T, typename AllocatorT>
 inline spark::Array<T, AllocatorT>::Array(const Array<T, AllocatorT>& array) : Array() {
-    if (realloc(array.size_)) {
+    if (array.size_ > 0 && realloc(array.size_)) {
         copy(data_, array.data_, array.data_ + array.size_);
         size_ = array.size_;
     }
@@ -971,7 +965,7 @@ inline spark::Array<T, AllocatorT>& spark::Array<T, AllocatorT>::operator=(Array
     return *this;
 }
 
-// spark::*
+// spark::
 template<typename T, typename AllocatorT>
 inline void spark::swap(Array<T, AllocatorT>& array, Array<T, AllocatorT>& array2) {
     using std::swap;
@@ -979,7 +973,5 @@ inline void spark::swap(Array<T, AllocatorT>& array, Array<T, AllocatorT>& array
     swap(array.size_, array2.size_);
     swap(array.capacity_, array2.capacity_);
 }
-/*
-#pragma GCC diagnostic pop
-*/
+
 #endif // SPARK_WIRING_ARRAY_H
