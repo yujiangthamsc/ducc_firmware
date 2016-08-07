@@ -30,9 +30,9 @@ const jsmntok_t* skipToken(const jsmntok_t *t) {
     size_t n = 1;
     do {
         if (t->type == JSMN_OBJECT) {
-            n += t->size * 2;
+            n += t->size * 2; // Number of name and value tokens
         } else if (t->type == JSMN_ARRAY) {
-            n += t->size;
+            n += t->size; // Number of value tokens
         }
         ++t;
         --n;
@@ -40,91 +40,384 @@ const jsmntok_t* skipToken(const jsmntok_t *t) {
     return t;
 }
 
+template<typename T>
+T numFromToken(const jsmntok_t *t, const char *json, bool *ok = nullptr) {
+    const char* const s = json + t->start;
+    char *end = nullptr;
+    T val = strtol(s, &end, 10);
+    if (!end || *end != '\0') {
+        val = strtod(s, &end); // Trying to parse as double
+        if (!end || *end != '\0') {
+            return T(); // Error
+        }
+    }
+    if (ok) {
+        *ok = true;
+    }
+    return val;
+}
+
+template<>
+double numFromToken<double>(const jsmntok_t *t, const char *json, bool *ok) {
+    const char* const s = json + t->start;
+    char *end = nullptr;
+    const double val = strtod(s, &end);
+    if (!end || *end != '\0') {
+        return 0.0; // Error
+    }
+    if (ok) {
+        *ok = true;
+    }
+    return val;
+}
+
+inline bool boolFromToken(const jsmntok_t *t, const char *json) {
+    const char* const s = json + t->start;
+    return *s == 't'; // Literal names are always in lower case
+}
+
+uint32_t hexToInt(const char *s, size_t size, bool *ok = nullptr) {
+    uint32_t val = 0;
+    const char* const end = s + size;
+    while (s != end) {
+        uint32_t n = 0;
+        const char c = *s;
+        if (c >= '0' && c <= '9') {
+            n = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            n = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            n = c - 'A' + 10;
+        } else {
+            return 0; // Error
+        }
+        val = (val << 4) | n;
+        ++s;
+    }
+    if (ok) {
+        *ok = true;
+    }
+    return val;
+}
+
 } // namespace
 
+// spark::detail::JSONData
+struct spark::detail::JSONData {
+    jsmntok_t *tokens;
+    char *json;
+    bool copy;
+
+    JSONData() :
+            tokens(nullptr),
+            json(nullptr),
+            copy(false) {
+    }
+
+    ~JSONData() {
+        delete[] tokens;
+        if (copy) {
+            delete[] json;
+        }
+    }
+};
+
 // spark::JSONValue
+spark::JSONValue::JSONValue(const jsmntok_t *t, detail::JSONDataPtr d) :
+        JSONValue() {
+    if (t) {
+        t_ = t;
+        d_ = d;
+    }
+}
+
 bool spark::JSONValue::toBool() const {
     switch (type()) {
-    case TYPE_BOOL:
-        return d_[t_->start] == 't'; // Valid literals are always in lower case
-    case TYPE_NUMBER:
-        return toFloat();
+    case JSON_TYPE_BOOL:
+        return boolFromToken(t_, d_->json);
+    case JSON_TYPE_NUMBER:
+        return numFromToken<bool>(t_, d_->json);
+    case JSON_TYPE_STRING: {
+        const char* const s = d_->json + t_->start;
+        if (*s == '\0' || strcmp(s, "false") == 0) { // Empty string or "false" in lower case
+            return false;
+        }
+        bool ok = false;
+        const bool val = numFromToken<bool>(t_, d_->json, &ok); // Check if string can be converted to a number
+        if (ok) {
+            return val;
+        }
+        return true; // Any other non-empty string
+    }
     default:
         return false;
     }
 }
 
 int spark::JSONValue::toInt() const {
-    if (!t_ || (t_->type != JSMN_STRING && t_->type != JSMN_PRIMITIVE) || !d_) {
+    switch (type()) {
+    case JSON_TYPE_BOOL:
+        return boolFromToken(t_, d_->json);
+    case JSON_TYPE_NUMBER:
+    case JSON_TYPE_STRING:
+        return numFromToken<int>(t_, d_->json);
+    default:
         return 0;
     }
-    return String(d_ + t_->start, t_->end - t_->start).toInt(); // TODO: Remove memory allocations
 }
 
-float spark::JSONValue::toFloat() const {
-    if (!t_ || (t_->type != JSMN_STRING && t_->type != JSMN_PRIMITIVE) || !d_) {
+double spark::JSONValue::toDouble() const {
+    switch (type()) {
+    case JSON_TYPE_BOOL:
+        return boolFromToken(t_, d_->json);
+    case JSON_TYPE_NUMBER:
+    case JSON_TYPE_STRING:
+        return numFromToken<double>(t_, d_->json);
+    default:
         return 0.0;
     }
-    return String(d_ + t_->start, t_->end - t_->start).toFloat(); // TODO: Remove memory allocations
 }
 
-spark::JSONValue::Type spark::JSONValue::type() const {
+spark::JSONType spark::JSONValue::type() const {
     if (!t_) {
-        return TYPE_INVALID;
+        return JSON_TYPE_INVALID;
     }
     switch (t_->type) {
     case JSMN_PRIMITIVE: {
-        if (!d_) {
-            return TYPE_INVALID;
-        }
-        const char c = d_[t_->start];
+        const char c = d_->json[t_->start];
         if (c == '-' || (c >= '0' && c <= '9')) {
-            return TYPE_NUMBER;
-        } else if (c == 't' || c == 'f') {
-            return TYPE_BOOL;
+            return JSON_TYPE_NUMBER;
+        } else if (c == 't' || c == 'f') { // Literal names are always in lower case
+            return JSON_TYPE_BOOL;
         } else if (c == 'n') {
-            return TYPE_NULL;
+            return JSON_TYPE_NULL;
         }
-        return TYPE_INVALID;
+        return JSON_TYPE_INVALID;
     }
     case JSMN_STRING:
-        return TYPE_STRING;
+        return JSON_TYPE_STRING;
     case JSMN_ARRAY:
-        return TYPE_ARRAY;
+        return JSON_TYPE_ARRAY;
     case JSMN_OBJECT:
-        return TYPE_OBJECT;
+        return JSON_TYPE_OBJECT;
     default:
-        return TYPE_INVALID;
+        return JSON_TYPE_INVALID;
     }
+}
+
+spark::JSONValue spark::JSONValue::parse(char *json, size_t size) {
+    detail::JSONDataPtr d(new(std::nothrow) detail::JSONData);
+    if (!d) {
+        return JSONValue();
+    }
+    size_t tokenCount = 0;
+    if (!tokenize(json, size, &d->tokens, &tokenCount)) {
+        return JSONValue();
+    }
+    const jsmntok_t *t = d->tokens; // Root token
+    if (t->type == JSMN_PRIMITIVE) {
+        // RFC 7159 allows JSON document to consist of a single primitive value, such as a number.
+        // In this case, original data is copied to a larger buffer to ensure room for term. null
+        // character (see stringize() method)
+        d->json = new(std::nothrow) char[size + 1];
+        if (!d->json) {
+            return JSONValue();
+        }
+        memcpy(d->json, json, size);
+        d->copy = true; // Set ownership flag
+    } else {
+        d->json = json;
+    }
+    if (!stringize(d->tokens, tokenCount, d->json)) {
+        return JSONValue();
+    }
+    return JSONValue(t, d);
+}
+
+spark::JSONValue spark::JSONValue::parseCopy(const char *json, size_t size) {
+    detail::JSONDataPtr d(new(std::nothrow) detail::JSONData);
+    if (!d) {
+        return JSONValue();
+    }
+    size_t tokenCount = 0;
+    if (!tokenize(json, size, &d->tokens, &tokenCount)) {
+        return JSONValue();
+    }
+    d->json = new(std::nothrow) char[size + 1];
+    if (!d->json) {
+        return JSONValue();
+    }
+    memcpy(d->json, json, size);
+    d->copy = true;
+    if (!stringize(d->tokens, tokenCount, d->json)) {
+        return JSONValue();
+    }
+    return JSONValue(d->tokens, d);
+}
+
+bool spark::JSONValue::tokenize(const char *json, size_t size, jsmntok_t **tokens, size_t *count) {
+    jsmn_parser parser;
+    parser.size = sizeof(jsmn_parser);
+    jsmn_init(&parser, nullptr);
+    const int n = jsmn_parse(&parser, json, size, nullptr, 0, nullptr); // Get number of tokens
+    if (n <= 0) {
+        return false; // Parsing error
+    }
+    std::unique_ptr<jsmntok_t[]> t(new(std::nothrow) jsmntok_t[n]);
+    if (!t) {
+        return false;
+    }
+    jsmn_init(&parser, nullptr); // Reset parser
+    if (jsmn_parse(&parser, json, size, t.get(), n, nullptr) <= 0) {
+        return false;
+    }
+    *tokens = t.release();
+    *count = n;
+    return true;
+}
+
+bool spark::JSONValue::stringize(jsmntok_t *t, size_t count, char *json) {
+    const jsmntok_t* const end = t + count;
+    while (t != end) {
+        if (t->type == JSMN_STRING) {
+            if (!unescape(t, json)) {
+                return false; // Malformed string
+            }
+            json[t->end] = '\0';
+        } else if (t->type == JSMN_PRIMITIVE) {
+            json[t->end] = '\0';
+        }
+        ++t;
+    }
+    return true;
+}
+
+bool spark::JSONValue::unescape(jsmntok_t *t, char *json) {
+    char *str = json + t->start; // Destination string
+    const char* const end = json + t->end; // End of the source string
+    const char *s1 = str; // Beginning of an unescaped sequence
+    const char *s = s1;
+    while (s != end) {
+        if (*s == '\\') {
+            if (s != s1) {
+                const size_t n = s - s1;
+                memmove(str, s1, n); // Shift preceeding characters
+                str += n;
+                s1 = s;
+            }
+            ++s;
+            if (s == end) {
+                return false; // Unexpected end of string
+            }
+            if (*s == 'u') { // Arbitrary character, e.g. "\u001f"
+                ++s;
+                if (end - s < 4) {
+                    return false; // Unexpected end of string
+                }
+                bool ok = false;
+                const uint32_t u = ::hexToInt(s, 4, &ok); // Unicode code point or UTF-16 surrogate pair
+                if (!ok) {
+                    return false; // Invalid escaped sequence
+                }
+                if (u <= 0x7f) { // Processing only code points within the basic latin block
+                    *str = u;
+                    ++str;
+                    s1 += 6; // Skip escaped sequence
+                }
+                s += 4;
+            } else {
+                switch (*s) {
+                case '"':
+                case '\\':
+                case '/':
+                    *str = *s;
+                    break;
+                case 'b': // Backspace
+                    *str = 0x08;
+                    break;
+                case 't': // Tab
+                    *str = 0x09;
+                    break;
+                case 'n': // Line feed
+                    *str = 0x0a;
+                    break;
+                case 'f': // Form feed
+                    *str = 0x0c;
+                    break;
+                case 'r': // Carriage return
+                    *str = 0x0d;
+                    break;
+                default:
+                    return false; // Invalid escaped sequence
+                }
+                ++str;
+                ++s;
+                s1 = s; // Skip escaped sequence
+            }
+        } else {
+            ++s;
+        }
+    }
+    if (s != s1) {
+        const size_t n = s - s1;
+        memmove(str, s1, n); // Shift remaining characters
+        str += n;
+    }
+    t->end = str - json; // Update string length
+    return true;
 }
 
 // spark::JSONString
-spark::JSONString::JSONString(const jsmntok_t *token, const char *data) :
+spark::JSONString::JSONString(const jsmntok_t *t, detail::JSONDataPtr d) :
         JSONString() {
-    if (token && (token->type == JSMN_STRING || token->type == JSMN_PRIMITIVE) && data) {
-        d_ = data + token->start;
-        n_ = token->end - token->start;
+    if (t && (t->type == JSMN_STRING || t->type == JSMN_PRIMITIVE)) {
+        if (t->type != JSMN_PRIMITIVE || d->json[t->start] != 'n') { // Nulls are treated as empty strings
+            s_ = d->json + t->start;
+            n_ = t->end - t->start;
+        }
+        d_ = d;
     }
 }
 
-bool spark::JSONString::operator==(const char *str) const {
-    const size_t n = strlen(str);
-    return n_ == n && strncmp(d_, str, n) == 0;
+bool spark::JSONString::operator==(const String &str) const {
+    return n_ == str.length() && strncmp(s_, str.c_str(), n_) == 0;
 }
 
-bool spark::JSONString::operator==(const String &str) const {
-    const size_t n = str.length();
-    return n_ == n && strncmp(d_, str.c_str(), n) == 0;
+bool spark::JSONString::operator==(const JSONString &str) const {
+    return n_ == str.n_ && strncmp(s_, str.s_, n_) == 0;
+}
+
+// spark::JSONObjectIterator
+spark::JSONObjectIterator::JSONObjectIterator(const jsmntok_t *t, detail::JSONDataPtr d) :
+        JSONObjectIterator() {
+    if (t && t->type == JSMN_OBJECT) {
+        t_ = t + 1; // First property's name
+        n_ = t->size; // Number of properties
+        d_ = d;
+    }
+}
+
+bool spark::JSONObjectIterator::next() {
+    if (!n_) {
+        return false;
+    }
+    k_ = t_; // Name
+    ++t_;
+    v_ = t_; // Value
+    --n_;
+    if (n_) {
+        t_ = skipToken(t_);
+    }
+    return true;
 }
 
 // spark::JSONArrayIterator
-spark::JSONArrayIterator::JSONArrayIterator(const JSONValue &value) :
+spark::JSONArrayIterator::JSONArrayIterator(const jsmntok_t *t, detail::JSONDataPtr d) :
         JSONArrayIterator() {
-    const jsmntok_t *t = value.t_;
     if (t && t->type == JSMN_ARRAY) {
-        t_ = t + 1;
-        d_ = value.d_;
-        n_ = t->size;
+        t_ = t + 1; // First element
+        n_ = t->size; // Number of elements
+        d_ = d;
     }
 }
 
@@ -133,53 +426,10 @@ bool spark::JSONArrayIterator::next() {
         return false;
     }
     v_ = t_;
-    if (--n_) {
+    --n_;
+    if (n_) {
         t_ = skipToken(t_);
     }
-    return true;
-}
-
-// spark::JSONObjectIterator
-spark::JSONObjectIterator::JSONObjectIterator(const JSONValue &value) :
-        JSONObjectIterator() {
-    const jsmntok_t *t = value.t_;
-    if (t && t->type == JSMN_OBJECT) {
-        t_ = t + 1;
-        d_ = value.d_;
-        n_ = t->size;
-    }
-}
-
-bool spark::JSONObjectIterator::next() {
-    if (!n_ || t_->type != JSMN_STRING) {
-        return false;
-    }
-    k_ = t_++;
-    v_ = t_;
-    if (--n_) {
-        t_ = skipToken(t_);
-    }
-    return true;
-}
-
-// spark::JSONParser
-bool spark::JSONParser::parse(const char *data, size_t size) {
-    jsmn_parser parser;
-    parser.size = sizeof(jsmn_parser);
-    jsmn_init(&parser, nullptr);
-    const int n = jsmn_parse(&parser, data, size, nullptr, 0, nullptr); // Get number of tokens
-    if (n <= 0) {
-        return false; // Parsing error
-    }
-    Array<jsmntok_t> tokens(n);
-    if (tokens.isEmpty()) {
-        return false; // Memory allocation error
-    }
-    if (jsmn_parse(&parser, data, size, tokens.data(), tokens.size(), nullptr) <= 0) {
-        return false;
-    }
-    swap(t_, tokens);
-    d_ = data;
     return true;
 }
 
@@ -193,7 +443,7 @@ spark::JSONWriter& spark::JSONWriter::beginArray() {
 
 spark::JSONWriter& spark::JSONWriter::endArray() {
     write(']');
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
@@ -206,7 +456,7 @@ spark::JSONWriter& spark::JSONWriter::beginObject() {
 
 spark::JSONWriter& spark::JSONWriter::endObject() {
     write('}');
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
@@ -224,67 +474,67 @@ spark::JSONWriter& spark::JSONWriter::value(bool val) {
     } else {
         write("false", 5);
     }
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
 spark::JSONWriter& spark::JSONWriter::value(int val) {
     writeSeparator();
     printf("%d", val);
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
 spark::JSONWriter& spark::JSONWriter::value(unsigned val) {
     writeSeparator();
     printf("%u", val);
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
-spark::JSONWriter& spark::JSONWriter::value(float val) {
+spark::JSONWriter& spark::JSONWriter::value(double val) {
     writeSeparator();
-    printf("%f", val);
-    state_ = ELEMENT;
+    printf("%g", val);
+    state_ = NEXT;
     return *this;
 }
 
 spark::JSONWriter& spark::JSONWriter::value(const char *val, size_t size) {
     writeSeparator();
     writeEscaped(val, size);
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
 spark::JSONWriter& spark::JSONWriter::nullValue() {
     writeSeparator();
     write("null", 4);
-    state_ = ELEMENT;
+    state_ = NEXT;
     return *this;
 }
 
 void spark::JSONWriter::printf(const char *fmt, ...) {
+    char buf[16];
     va_list args;
     va_start(args, fmt);
-    char buf[16];
-    const int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     if ((size_t)n >= sizeof(buf)) {
         char buf[n + 1]; // Use larger buffer
         va_start(args, fmt);
-        if (vsnprintf(buf, sizeof(buf), fmt, args) > 0) {
+        n = vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+        if (n > 0) {
             write(buf, n);
         }
-        va_end(args);
     } else if (n > 0) {
         write(buf, n);
     }
-    va_end(args);
 }
 
 void spark::JSONWriter::writeSeparator() {
     switch (state_) {
-    case ELEMENT:
+    case NEXT:
         write(',');
         break;
     case VALUE:
@@ -297,23 +547,45 @@ void spark::JSONWriter::writeSeparator() {
 
 void spark::JSONWriter::writeEscaped(const char *str, size_t size) {
     write('"');
-    const char *s = str;
     const char* const end = str + size;
+    const char *s = str;
     while (s != end) {
         const char c = *s;
-        if (c == '"' || c == '\\' || (c >= 0 && c <= 0x1f)) { // RFC 7159, 7. Strings
+        if (c == '"' || c == '\\' || (c >= 0 && c <= 0x1f)) {
             write(str, s - str); // Write preceeding characters
             write('\\');
-            if (c <= 0x1f) {
-                printf("u%04x", (unsigned)c); // Control characters are written in hex, e.g. "\u001f"
-            } else {
+            switch (c) {
+            case '"':
+            case '\\':
                 write(c);
+                break;
+            case 0x08: // Backspace
+                write('b');
+                break;
+            case 0x09: // Tab
+                write('t');
+                break;
+            case 0x0a: // Line feed
+                write('n');
+                break;
+            case 0x0c: // Form feed
+                write('f');
+                break;
+            case 0x0d: // Carriage return
+                write('r');
+                break;
+            default:
+                // All other control characters are written in hex, e.g. "\u001f"
+                printf("u%04x", (unsigned)c);
+                break;
             }
             str = s + 1;
         }
         ++s;
     }
-    write(str, s - str); // Write remaining part of the string
+    if (s != str) {
+        write(str, s - str); // Write remaining characters
+    }
     write('"');
 }
 
