@@ -78,12 +78,12 @@ using namespace spark;
 class JSONRequestHandler {
 public:
     static bool process(const char *reqData, size_t reqSize, char *repData, size_t *repSize) {
-        JSONParser parser(reqData, reqSize);
-        if (!parser.isValid()) {
+        const JSONValue jsonDoc = JSONValue::parseCopy(reqData, reqSize); // FIXME: Use JSONValue::parse()
+        if (!jsonDoc.isValid()) {
             return false; // Parsing error
         }
         Request req;
-        if (!parseRequest(parser.value(), &req)) {
+        if (!parseRequest(jsonDoc, &req)) {
             return false;
         }
         JSONBufferWriter writer(repData, repSize ? *repSize : 0);
@@ -91,9 +91,9 @@ public:
             return false;
         }
         if (repSize) {
-            *repSize = writer.size();
+            *repSize = writer.dataSize();
         }
-        if (writer.size() > writer.bufferSize()) {
+        if (writer.dataSize() > writer.bufferSize()) {
             return false;
         }
         return true;
@@ -174,7 +174,7 @@ private:
                     }
                 }
             }
-            filters->append(LogCategoryFilter(cat, level));
+            filters->append(LogCategoryFilter((String)cat, level));
         }
         return true;
     }
@@ -363,29 +363,6 @@ inline const char* strchrnul(const char *s, char c) {
 }
 #endif
 
-// Slightly tweaked version of std::lower_bound() taking strcmp-alike comparator function
-template<typename T, typename CompareT, typename... ArgsT>
-int lowerBound(const spark::Array<T> &array, CompareT compare, bool &found, ArgsT... args) {
-    found = false;
-    int index = 0;
-    int n = array.size();
-    while (n > 0) {
-        const int half = n >> 1;
-        const int i = index + half;
-        const int cmp = compare(array.at(i), args...);
-        if (cmp < 0) {
-            index = i + 1;
-            n -= half + 1;
-        } else {
-            if (cmp == 0) {
-                found = true;
-            }
-            n = half;
-        }
-    }
-    return index;
-}
-
 // Iterates over subcategory names separated by '.' character
 const char* nextSubcategoryName(const char* &category, size_t &size) {
     const char *s = strchrnul(category, '.');
@@ -531,13 +508,19 @@ LogLevel spark::LogFilter::level(const char *category) const {
 }
 
 int spark::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found) {
-    return lowerBound(nodes, [](const Node &node, const char *name, uint16_t size) {
-            const int cmp = strncmp(node.name, name, std::min(node.size, size));
-            if (cmp == 0) {
-                return (int)node.size - (int)size;
-            }
-            return cmp;
-        }, found, name, (uint16_t)size);
+    // Using binary search to find existent node or suitable position for new node
+    return std::distance(nodes.begin(), std::lower_bound(nodes.begin(), nodes.end(), std::make_pair(name, size),
+            [&found](const Node &node, const std::pair<const char*, size_t> &value) {
+                const int cmp = strncmp(node.name, value.first, std::min<size_t>(node.size, value.second));
+                if (cmp == 0) {
+                    if (node.size == value.second) { // Lengths are equal
+                        found = true; // Allows caller code to avoid extra call to strncmp()
+                        return false;
+                    }
+                    return node.size < value.second;
+                }
+                return cmp < 0;
+            }));
 }
 
 // spark::StreamLogHandler
@@ -643,7 +626,7 @@ void spark::JSONLogHandler::logMessage(const char *msg, LogLevel level, const ch
         writer_.name("details", 7).value(attr.details);
     }
     writer_.endObject();
-    write("\r\n", 2);
+    writer_.stream()->write("\r\n");
 }
 
 // spark::LogManager
@@ -670,6 +653,13 @@ spark::LogManager::LogManager() {
 }
 
 spark::LogManager::~LogManager() {
+    log_set_callbacks(nullptr, nullptr, nullptr, nullptr); // Reset system callbacks
+    WITH_LOCK(mutex_) {
+        // Destroying dynamically allocated handlers
+        for (const NamedHandler &h: namedHandlers_) {
+            destroyNamedHandler(h);
+        }
+    }
 }
 
 bool spark::LogManager::addHandler(LogHandler *handler) {
@@ -788,7 +778,7 @@ bool spark::LogManager::addNamedHandler(const JSONString &id, const JSONString &
         if (!namedHandlers_.append(std::move(h)) || !activeHandlers_.append(h.handler)) {
             return false;
         }
-        handler.release(); // Ownership has been transferred to the LogManager
+        handler.release(); // Release scope guard pointers
         stream.release();
     }
     return true;

@@ -208,11 +208,15 @@ private:
     Print *stream_;
 };
 
-class JSONLogHandler: public StreamLogHandler {
+class JSONLogHandler: public LogHandler {
 public:
     explicit JSONLogHandler(Print &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
 
+    Print* stream() const;
+
+protected:
     virtual void logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) override;
+    virtual void write(const char *data, size_t size) override;
 
 private:
     JSONStreamWriter writer_;
@@ -691,8 +695,16 @@ inline void spark::StreamLogHandler::printf(const char *fmt, ArgsT... args) {
 
 // spark::JSONLogHandler
 inline spark::JSONLogHandler::JSONLogHandler(Print &stream, LogLevel level, LogCategoryFilters filters) :
-        StreamLogHandler(stream, level, filters),
+        LogHandler(level, filters),
         writer_(stream) {
+}
+
+inline Print* spark::JSONLogHandler::stream() const {
+    return writer_.stream();
+}
+
+inline void spark::JSONLogHandler::write(const char *data, size_t size) {
+    // Direct logging is not supported
 }
 
 // spark::Logger
