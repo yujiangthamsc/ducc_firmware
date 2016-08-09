@@ -1,205 +1,35 @@
-#define CATCH_CONFIG_PREFIX_ALL
-#include "catch.hpp"
-
-#include <unordered_map>
-#include <vector>
-#include <random>
-
 #include "spark_wiring_array.h"
 
-#define CHECK(...) \
-        CATCH_CHECK(__VA_ARGS__)
+#include "tools/catch.h"
+#include "tools/alloc.h"
 
-#define REQUIRE(...) \
-        CATCH_REQUIRE(__VA_ARGS__)
+#include <vector>
 
 namespace {
 
-class TestAllocator {
-public:
-    class Checker {
-    public:
-        Checker() {
-            TestAllocator::instance()->reset();
-        }
-
-        void check() {
-            TestAllocator::instance()->check();
-        }
-    };
-
-    void* malloc(size_t size) {
-        const Buffer b = newBuffer(size);
-        void* const ptr = &b->front() + PADDING_SIZE;
-        alloc_.insert(std::make_pair(ptr, b));
-        return ptr;
-    }
-
-    void* calloc(size_t count, size_t size) {
-        size *= count;
-        void* const ptr = malloc(size);
-        if (ptr) {
-            ::memset(ptr, 0, size);
-        }
-        return ptr;
-    }
-
-    void* realloc(void* ptr, size_t size) {
-        try {
-            Buffer b; // Original buffer
-            if (ptr) {
-                auto it = alloc_.find(ptr);
-                if (it == alloc_.end()) {
-                    throw std::runtime_error("Invalid realloc() detected");
-                }
-                b = it->second;
-            }
-            void* const p = malloc(size);
-            if (p) {
-                free(ptr);
-                if (b) {
-                    // Copy user data from the original buffer
-                    ::memcpy(p, b->data() + PADDING_SIZE, std::min(size, b->size() - PADDING_SIZE * 2));
-                }
-            }
-            return p;
-        } catch (const std::exception& e) {
-            // realloc() and free() can be called in destructor, so we can't use CATCH_FAIL() here,
-            // as it throws exceptions
-            CATCH_WARN("TestAllocator: " << e.what());
-            failed_ = true;
-            return nullptr;
-        }
-    }
-
-    void free(void* ptr) {
-        try {
-            if (!ptr) {
-                return;
-            }
-            if (free_.count(ptr)) {
-                throw std::runtime_error("Double free() detected");
-            }
-            auto it = alloc_.find(ptr);
-            if (it == alloc_.end()) {
-                throw std::runtime_error("Invalid free() detected");
-            }
-            const Buffer b = it->second; // Original buffer
-            alloc_.erase(it);
-            FreeBuffer f;
-            f.buffer = b;
-            f.data = b->substr(PADDING_SIZE, b->size() - PADDING_SIZE * 2); // Current user data
-            free_.insert(std::make_pair(ptr, f));
-            if (!checkPadding(b)) {
-                throw std::runtime_error("Buffer overflow detected");
-            }
-        } catch (const std::exception& e) {
-            CATCH_WARN("TestAllocator: " << e.what());
-            failed_ = true;
-        }
-    }
-
-    void reset() {
-        alloc_.clear();
-        free_.clear();
-        randomFill(&padding_.front(), PADDING_SIZE); // Generate new padding data
-        failed_ = false;
-    }
-
-    void check() {
-        // Check all previously allocated buffers
-        if (!alloc_.empty()) {
-            CATCH_FAIL("TestAllocator: Memory leak detected");
-        }
-        for (auto it = free_.begin(); it != free_.end(); ++it) {
-            const FreeBuffer& f = it->second;
-            if (!checkData(f.buffer, f.data) || !checkPadding(f.buffer)) {
-                CATCH_FAIL("TestAllocator: Memory corruption detected");
-            }
-        }
-        if (failed_) {
-            CATCH_FAIL("TestAllocator: Memory check failed");
-        }
-    }
-
-    static TestAllocator* instance() {
-        static TestAllocator alloc;
-        return &alloc;
-    }
-
-    // This class is non-copyable
-    TestAllocator(const TestAllocator&) = delete;
-    TestAllocator& operator=(const TestAllocator&) = delete;
-
-private:
-    typedef std::shared_ptr<std::string> Buffer;
-
-    struct FreeBuffer {
-        Buffer buffer;
-        std::string data; // Original data
-    };
-
-    std::unordered_map<void*, Buffer> alloc_;
-    std::unordered_map<void*, FreeBuffer> free_;
-    std::string padding_;
-    bool failed_;
-
-    static const size_t PADDING_SIZE = 128;
-
-    TestAllocator() :
-            padding_(PADDING_SIZE, 0),
-            failed_(false) {
-        reset();
-    }
-
-    Buffer newBuffer(size_t size) const {
-        const Buffer b(new std::string(size + PADDING_SIZE * 2, 0));
-        // Initialize padding
-        ::memcpy(&b->front(), padding_.data(), PADDING_SIZE);
-        ::memcpy(&b->front() + PADDING_SIZE + size, padding_.data(), PADDING_SIZE);
-        // Fill user data with random bytes
-        randomFill(&b->front() + PADDING_SIZE, size);
-        return b;
-    }
-
-    bool checkData(const Buffer& b, const std::string& data) {
-        const size_t size = b->size() - PADDING_SIZE * 2;
-        return ::memcmp(b->data() + PADDING_SIZE, data.data(), size) == 0;
-    }
-
-    bool checkPadding(const Buffer& b) const {
-        const size_t size = b->size() - PADDING_SIZE * 2;
-        return ::memcmp(b->data(), padding_.data(), PADDING_SIZE) == 0 &&
-                ::memcmp(b->data() + PADDING_SIZE + size, padding_.data(), PADDING_SIZE) == 0;
-    }
-
-    static void randomFill(char* data, size_t size) {
-        static std::random_device rnd;
-        static std::uniform_int_distribution<unsigned> dist(0, 255);
-        for (size_t i = 0; i < size; ++i) {
-            data[i] = (char)dist(rnd);
-        }
-    }
-};
-
-struct TestArrayAllocator {
+struct Allocator {
     static void* malloc(size_t size) {
-        return TestAllocator::instance()->malloc(size);
+        return instance()->malloc(size);
     }
 
     static void* realloc(void* ptr, size_t size) {
-        return TestAllocator::instance()->realloc(ptr, size);
+        return instance()->realloc(ptr, size);
     }
 
     static void free(void* ptr) {
-        TestAllocator::instance()->free(ptr);
+        instance()->free(ptr);
+    }
+
+    static test::Allocator* instance() {
+        static test::Allocator alloc;
+        return &alloc;
     }
 };
 
 template<typename T>
-class Array: public spark::Array<T, TestArrayAllocator> {
+class Array: public spark::Array<T, Allocator> {
 public:
-    using spark::Array<T, TestArrayAllocator>::Array;
+    using spark::Array<T, Allocator>::Array;
 
     template<typename... ArgsT>
     void checkValues(ArgsT... args) const {
@@ -251,7 +81,7 @@ private:
 CATCH_TEST_CASE("Array<int>") {
     typedef ::Array<int> Array;
 
-    TestAllocator::Checker alloc;
+    Allocator::instance()->reset();
 
     CATCH_SECTION("construct") {
         CATCH_SECTION("Array()") {
@@ -698,5 +528,5 @@ CATCH_TEST_CASE("Array<int>") {
         }
     }
 
-    alloc.check(); // Check memory allocations
+    Allocator::instance()->check();
 }

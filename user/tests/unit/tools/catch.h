@@ -1,0 +1,17 @@
+#ifndef TEST_TOOLS_CATCH_H
+#define TEST_TOOLS_CATCH_H
+
+#define CATCH_CONFIG_PREFIX_ALL
+#include <catch.hpp>
+
+// Non-prefixed aliases for some typical macros that don't clash with the firmware
+#define CHECK(...) \
+        CATCH_CHECK(__VA_ARGS__)
+
+#define REQUIRE(...) \
+        CATCH_REQUIRE(__VA_ARGS__)
+
+#define FAIL(...) \
+        CATCH_FAIL(__VA_ARGS__)
+
+#endif // TEST_TOOLS_CATCH_H
