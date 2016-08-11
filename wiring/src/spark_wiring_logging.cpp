@@ -39,17 +39,17 @@ using namespace spark;
     Adding log handler:
 
     {
-      "cmd": "add_handler", // Command name
-      "id": "handler_1", // Handler ID
+      "cmd": "addHandler", // Command name
+      "id": "handler1", // Handler ID
       "hnd": { // Handler settings
         "type": "JSONLogHandler", // Handler type
-        "param": { // Type-specific parameters
+        "param": { // Additional handler parameters
           ...
         }
       },
       "strm": { // Stream settings
         "type": "Serial1", // Stream type
-        "param": { // Type-specific parameters
+        "param": { // Additional stream parameters
           ...
         }
       }
@@ -65,36 +65,39 @@ using namespace spark;
     Removing log handler:
 
     {
-      "cmd": "remove_handler", // Command name
-      "id": "handler_1" // Handler ID
+      "cmd": "removeHandler", // Command name
+      "id": "handler1" // Handler ID
     }
 
     Enumerating active log handlers:
 
     {
-      "cmd": "enum_handlers" // Command name
+      "cmd": "enumHandlers" // Command name
     }
+
+    Reply example:
+
+    [
+      "handler1", "handler2"
+    ]
 */
 class JSONRequestHandler {
 public:
-    static bool process(const char *reqData, size_t reqSize, char *repData, size_t *repSize) {
-        const JSONValue jsonDoc = JSONValue::parseCopy(reqData, reqSize); // FIXME: Use JSONValue::parse()
-        if (!jsonDoc.isValid()) {
+    static bool process(char *buf, size_t bufSize, size_t reqSize, size_t *repSize) {
+        const JSONValue jsonReq = JSONValue::parse(buf, reqSize);
+        if (!jsonReq.isValid()) {
             return false; // Parsing error
         }
         Request req;
-        if (!parseRequest(jsonDoc, &req)) {
+        if (!parseRequest(jsonReq, &req)) {
             return false;
         }
-        JSONBufferWriter writer(repData, repSize ? *repSize : 0);
+        JSONBufferWriter writer(buf, bufSize);
         if (!processRequest(req, writer)) {
             return false;
         }
         if (repSize) {
             *repSize = writer.dataSize();
-        }
-        if (writer.dataSize() > writer.bufferSize()) {
-            return false;
         }
         return true;
     }
@@ -208,11 +211,11 @@ private:
     }
 
     static bool processRequest(Request &req, JSONWriter &writer) {
-        if (req.cmd == "add_handler") {
+        if (req.cmd == "addHandler") {
             return addHandler(req, writer);
-        } else if (req.cmd == "remove_handler") {
+        } else if (req.cmd == "removeHandler") {
             return removeHandler(req, writer);
-        } else if (req.cmd == "enum_handlers") {
+        } else if (req.cmd == "enumHandlers") {
             return enumHandlers(req, writer);
         } else {
             return false; // Unsupported request
@@ -220,18 +223,18 @@ private:
     }
 
     static bool addHandler(Request &req, JSONWriter&) {
-        return logManager()->addNamedHandler(req.id, req.handler.type, req.handler.params, req.stream.type,
-                req.stream.params, req.level, req.filters);
+        return logManager()->addFactoryHandler((const char*)req.id, (const char*)req.handler.type, req.level, req.filters,
+                req.handler.params, (const char*)req.stream.type, req.stream.params);
     }
 
     static bool removeHandler(Request &req, JSONWriter&) {
-        logManager()->removeNamedHandler(req.id);
+        logManager()->removeFactoryHandler((const char*)req.id);
         return true;
     }
 
     static bool enumHandlers(Request &req, JSONWriter &writer) {
         writer.beginArray();
-        logManager()->enumNamedHandlers(enumHandlersCallback, &writer);
+        logManager()->enumFactoryHandlers(enumHandlersCallback, &writer);
         writer.endArray();
         return true;
     }
@@ -246,97 +249,13 @@ private:
     }
 };
 
-class DefaultLogHandlerFactory: public LogHandlerFactory {
-public:
-    LogHandler* createHandler(const JSONString &type, const JSONValue &params, Print *stream, LogLevel level,
-            const LogCategoryFilters &filters) override {
-        if (type == "JSONLogHandler") {
-            return createStreamHandler<JSONLogHandler>(stream, level, filters);
-        } else if (type == "StreamLogHandler") {
-            return createStreamHandler<StreamLogHandler>(stream, level, filters);
-        }
-        return nullptr; // Unknown handler type
-    }
-
-    static DefaultLogHandlerFactory* instance() {
-        static DefaultLogHandlerFactory factory;
-        return &factory;
-    }
-
-private:
-    template<typename T>
-    static T* createStreamHandler(Print *stream, LogLevel level, const LogCategoryFilters &filters) {
-        if (!stream) {
-            return nullptr; // Output stream is not specified
-        }
-        return new T(*stream, level, filters);
-    }
-};
-
-class DefaultOutputStreamFactory: public OutputStreamFactory {
-public:
-    Print* createStream(const JSONString &type, const JSONValue &params) override {
-        Print *stream = nullptr;
-#if PLATFORM_ID != 3
-        if (type == "Serial") {
-            Serial.begin();
-            stream = &Serial;
-        }
-#if Wiring_USBSerial1
-        else if (type == "USBSerial1") {
-            USBSerial1.begin();
-            stream = &USBSerial1;
-        }
-#endif
-        else if (type == "Serial1") {
-            int baud = 9600;
-            getParams(params, &baud);
-            Serial1.begin(baud);
-            stream = &Serial1;
-        }
-#endif // PLATFORM_ID != 3
-        return stream;
-    }
-
-    void destroyStream(Print *stream) override {
-#if PLATFORM_ID != 3
-        if (stream == &Serial) {
-            Serial.end();
-        }
-#if Wiring_USBSerial1
-        else if (stream == &USBSerial1) {
-            USBSerial1.end();
-        }
-#endif
-        else if (stream == &Serial1) {
-            Serial1.end();
-        }
-#endif // PLATFORM_ID != 3
-    }
-
-    static DefaultOutputStreamFactory* instance() {
-        static DefaultOutputStreamFactory factory;
-        return &factory;
-    }
-
-private:
-    static void getParams(const JSONValue &params, int *baudRate) {
-        JSONObjectIterator it(params);
-        while (it.next()) {
-            if (it.name() == "baud" && baudRate) {
-                *baudRate = it.value().toInt();
-            }
-        }
-    }
-};
-
 // Custom deleter for std::unique_ptr
 template<typename T, typename FactoryT, void(FactoryT::*destroy)(T*)>
 struct FactoryDeleter {
     FactoryDeleter() : factory(nullptr) {
     }
 
-    explicit FactoryDeleter(FactoryT *factory) : factory(factory) {
+    FactoryDeleter(FactoryT *factory) : factory(factory) {
     }
 
     void operator()(T *ptr) {
@@ -348,10 +267,8 @@ struct FactoryDeleter {
     FactoryT *factory;
 };
 
-typedef std::unique_ptr<LogHandler, FactoryDeleter<LogHandler, LogHandlerFactory, &LogHandlerFactory::destroyHandler>>
-        LogHandlerUniquePtr;
-typedef std::unique_ptr<Print, FactoryDeleter<Print, OutputStreamFactory, &OutputStreamFactory::destroyStream>>
-        PrintUniquePtr;
+typedef FactoryDeleter<LogHandler, LogHandlerFactory, &LogHandlerFactory::destroyHandler> LogHandlerFactoryDeleter;
+typedef FactoryDeleter<Print, OutputStreamFactory, &OutputStreamFactory::destroyStream> OutputStreamFactoryDeleter;
 
 #if PLATFORM_ID == 3
 // GCC on some platforms doesn't provide strchrnul()
@@ -425,8 +342,8 @@ const spark::Logger spark::Log("app");
     `- aa (error) - b (warn)
 */
 
-// spark::LogFilter
-struct spark::LogFilter::Node {
+// spark::detail::LogFilter
+struct spark::detail::LogFilter::Node {
     const char *name; // Subcategory name
     uint16_t size; // Name length
     int16_t level; // Logging level (-1 if not specified for this node)
@@ -439,11 +356,11 @@ struct spark::LogFilter::Node {
     }
 };
 
-spark::LogFilter::LogFilter(LogLevel level) :
+spark::detail::LogFilter::LogFilter(LogLevel level) :
         level_(level) {
 }
 
-spark::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) :
+spark::detail::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) :
         level_(LOG_LEVEL_NONE) { // Fallback level that will be used in case of construction errors
     // Store category names
     Array<String> cats;
@@ -482,10 +399,10 @@ spark::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) :
     level_ = level;
 }
 
-spark::LogFilter::~LogFilter() {
+spark::detail::LogFilter::~LogFilter() {
 }
 
-LogLevel spark::LogFilter::level(const char *category) const {
+LogLevel spark::detail::LogFilter::level(const char *category) const {
     LogLevel level = level_; // Default level
     if (!nodes_.isEmpty() && category) {
         const Array<Node> *pNodes = &nodes_; // Root nodes
@@ -507,7 +424,7 @@ LogLevel spark::LogFilter::level(const char *category) const {
     return level;
 }
 
-int spark::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found) {
+int spark::detail::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found) {
     // Using binary search to find existent node or suitable position for new node
     return std::distance(nodes.begin(), std::lower_bound(nodes.begin(), nodes.end(), std::make_pair(name, size),
             [&found](const Node &node, const std::pair<const char*, size_t> &value) {
@@ -584,8 +501,8 @@ void spark::StreamLogHandler::logMessage(const char *msg, LogLevel level, const 
     write("\r\n", 2);
 }
 
-// spark::JSONLogHandler
-void spark::JSONLogHandler::logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) {
+// spark::JSONStreamLogHandler
+void spark::JSONStreamLogHandler::logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) {
     writer_.beginObject();
     // Level
     const char *s = levelName(level);
@@ -629,36 +546,101 @@ void spark::JSONLogHandler::logMessage(const char *msg, LogLevel level, const ch
     writer_.stream()->write("\r\n");
 }
 
+// spark::DefaultLogHandlerFactory
+LogHandler* spark::DefaultLogHandlerFactory::createHandler(const char *type, LogLevel level, LogCategoryFilters filters,
+            Print *stream, const JSONValue &params) {
+    if (strcmp(type, "JSONStreamLogHandler") == 0) {
+        if (!stream) {
+            return nullptr; // Output stream is not specified
+        }
+        return new(std::nothrow) JSONStreamLogHandler(*stream, level, std::move(filters));
+    } else if (strcmp(type, "StreamLogHandler") == 0) {
+        if (!stream) {
+            return nullptr;
+        }
+        return new(std::nothrow) StreamLogHandler(*stream, level, std::move(filters));
+    }
+    return nullptr; // Unknown handler type
+}
+
+spark::DefaultLogHandlerFactory* spark::DefaultLogHandlerFactory::instance() {
+    static DefaultLogHandlerFactory factory;
+    return &factory;
+}
+
+// spark::DefaultOutputStreamFactory
+Print* spark::DefaultOutputStreamFactory::createStream(const char *type, const JSONValue &params) {
+#if PLATFORM_ID != 3
+    if (strcmp(type, "Serial") == 0) {
+        Serial.begin();
+        return &Serial;
+    }
+#if Wiring_USBSerial1
+    if (strcmp(type, "USBSerial1") == 0) {
+        USBSerial1.begin();
+        return &USBSerial1;
+    }
+#endif
+    if (strcmp(type, "Serial1") == 0) {
+        int baud = 9600;
+        getParams(params, &baud);
+        Serial1.begin(baud);
+        return &Serial1;
+    }
+#endif // PLATFORM_ID != 3
+    return nullptr;
+}
+
+void spark::DefaultOutputStreamFactory::destroyStream(Print *stream) {
+#if PLATFORM_ID != 3
+    if (stream == &Serial) {
+        Serial.end();
+        return;
+    }
+#if Wiring_USBSerial1
+    if (stream == &USBSerial1) {
+        USBSerial1.end();
+        return;
+    }
+#endif
+    if (stream == &Serial1) {
+        Serial1.end();
+        return;
+    }
+#endif // PLATFORM_ID != 3
+    OutputStreamFactory::destroyStream(stream);
+}
+
+spark::DefaultOutputStreamFactory* spark::DefaultOutputStreamFactory::instance() {
+    static DefaultOutputStreamFactory factory;
+    return &factory;
+}
+
+void spark::DefaultOutputStreamFactory::getParams(const JSONValue &params, int *baudRate) {
+    JSONObjectIterator it(params);
+    while (it.next()) {
+        if (it.name() == "baud" && baudRate) {
+            *baudRate = it.value().toInt();
+        }
+    }
+}
+
 // spark::LogManager
-struct spark::LogManager::NamedHandler {
+struct spark::LogManager::FactoryHandler {
     String id;
     LogHandler *handler;
-    LogHandlerFactory *handlerFactory;
     Print *stream;
-    OutputStreamFactory *streamFactory;
-
-    explicit NamedHandler(const JSONString &id) :
-            id(id),
-            handler(nullptr),
-            handlerFactory(nullptr),
-            stream(nullptr),
-            streamFactory(nullptr) {
-    }
 };
 
-spark::LogManager::LogManager() {
-    // Register default factory instances
-    handlerFactories_.append(DefaultLogHandlerFactory::instance());
-    streamFactories_.append(DefaultOutputStreamFactory::instance());
+spark::LogManager::LogManager() :
+        handlerFactory_(DefaultLogHandlerFactory::instance()),
+        streamFactory_(DefaultOutputStreamFactory::instance()) {
 }
 
 spark::LogManager::~LogManager() {
     log_set_callbacks(nullptr, nullptr, nullptr, nullptr); // Reset system callbacks
     WITH_LOCK(mutex_) {
-        // Destroying dynamically allocated handlers
-        for (const NamedHandler &h: namedHandlers_) {
-            destroyNamedHandler(h);
-        }
+        destroyFactoryHandlers(); // Destroying all dynamically allocated handlers
     }
 }
 
@@ -682,100 +664,40 @@ void spark::LogManager::removeHandler(LogHandler *handler) {
     }
 }
 
-bool spark::LogManager::addHandlerFactory(LogHandlerFactory *factory) {
+bool spark::LogManager::addFactoryHandler(const char *id, const char *handlerType, LogLevel level, LogCategoryFilters filters,
+        const JSONValue &handlerParams, const char *streamType, const JSONValue &streamParams) {
     WITH_LOCK(mutex_) {
-        if (handlerFactories_.contains(factory) || !handlerFactories_.append(factory)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void spark::LogManager::removeHandlerFactory(LogHandlerFactory *factory) {
-    WITH_LOCK(mutex_) {
-        if (handlerFactories_.removeOne(factory)) {
-            // Destroying all handlers created via the factory that is about to be unregistered
-            int i = 0;
-            while (i < namedHandlers_.size()) {
-                if (namedHandlers_[i].handlerFactory == factory) {
-                    removeNamedHandler(i);
-                } else {
-                    ++i;
-                }
-            }
-        }
-    }
-}
-
-bool spark::LogManager::addStreamFactory(OutputStreamFactory *factory) {
-    WITH_LOCK(mutex_) {
-        if (streamFactories_.contains(factory) || !streamFactories_.append(factory)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void spark::LogManager::removeStreamFactory(OutputStreamFactory *factory) {
-    WITH_LOCK(mutex_) {
-        if (streamFactories_.removeOne(factory)) {
-            // Destroying all handlers that use streams created via the factory that is about to be unregistered
-            int i = 0;
-            while (i < namedHandlers_.size()) {
-                if (namedHandlers_[i].streamFactory == factory) {
-                    removeNamedHandler(i);
-                } else {
-                    ++i;
-                }
-            }
-        }
-    }
-}
-
-bool spark::LogManager::addNamedHandler(const JSONString &id, const JSONString &handlerType, const JSONValue &handlerParams,
-        const JSONString &streamType, const JSONValue &streamParams, LogLevel level, LogCategoryFilters filters) {
-    WITH_LOCK(mutex_) {
-        const int i = namedHandlerIndex(id);
-        if (i != -1) {
-            removeNamedHandler(i); // Destroy existent handler with the same ID
-        }
-        NamedHandler h(id);
+        destroyFactoryHandler(id); // Destroy existent handler with the same ID
+        FactoryHandler h;
+        h.id = id;
         if (!h.id.length()) {
             return false; // Empty handler ID or memory allocation error
         }
-        // Create output stream (if necessary)
-        PrintUniquePtr stream;
-        if (!streamType.isEmpty()) {
-            for (OutputStreamFactory *factory: streamFactories_) {
-                Print *p = factory->createStream(streamType, streamParams);
-                if (p) {
-                    stream = PrintUniquePtr(p, PrintUniquePtr::deleter_type(factory));
-                    break;
-                }
+        // Create output stream (optional)
+        std::unique_ptr<Print, OutputStreamFactoryDeleter> stream(nullptr, streamFactory_);
+        if (streamType) {
+            if (streamFactory_) {
+                stream.reset(streamFactory_->createStream(streamType, streamParams));
             }
             if (!stream) {
                 return false; // Unsupported stream type
             }
         }
         // Create log handler
-        LogHandlerUniquePtr handler;
-        for (LogHandlerFactory *factory: handlerFactories_) {
-            LogHandler *p = factory->createHandler(handlerType, handlerParams, stream.get(), level, filters);
-            if (p) {
-                handler = LogHandlerUniquePtr(p, LogHandlerUniquePtr::deleter_type(factory));
-                break;
-            }
+        std::unique_ptr<LogHandler, LogHandlerFactoryDeleter> handler(nullptr, handlerFactory_);
+        if (handlerType && handlerFactory_) {
+            handler.reset(handlerFactory_->createHandler(handlerType, level, std::move(filters), stream.get(), handlerParams));
         }
         if (!handler) {
             return false; // Unsupported handler type
         }
         h.handler = handler.get();
-        h.handlerFactory = handler.get_deleter().factory; // Keep pointer to factory instance
-        if (stream) {
-            h.stream = stream.get();
-            h.streamFactory = stream.get_deleter().factory;
+        h.stream = stream.get();
+        if (!factoryHandlers_.append(std::move(h))) {
+            return false;
         }
-        if (!namedHandlers_.append(std::move(h)) || !activeHandlers_.append(h.handler)) {
+        if (!activeHandlers_.append(h.handler)) {
+            factoryHandlers_.takeLast(); // Revert succeeded factoryHandlers_.append()
             return false;
         }
         handler.release(); // Release scope guard pointers
@@ -784,44 +706,62 @@ bool spark::LogManager::addNamedHandler(const JSONString &id, const JSONString &
     return true;
 }
 
-void spark::LogManager::removeNamedHandler(const JSONString &id) {
+void spark::LogManager::removeFactoryHandler(const char *id) {
     WITH_LOCK(mutex_) {
-        const int i = namedHandlerIndex(id);
-        if (i != -1) {
-            destroyNamedHandler(namedHandlers_[i]);
-            namedHandlers_.remove(i);
-        }
+        destroyFactoryHandler(id);
     }
 }
 
-void spark::LogManager::enumNamedHandlers(void(*callback)(const char *id, void *data), void *data) {
+void spark::LogManager::enumFactoryHandlers(void(*callback)(const char *id, void *data), void *data) {
     WITH_LOCK(mutex_) {
-        for (const NamedHandler &handler: namedHandlers_) {
-            callback(handler.id.c_str(), data);
+        for (const FactoryHandler &h: factoryHandlers_) {
+            callback(h.id.c_str(), data);
         }
     }
 }
 
-int spark::LogManager::namedHandlerIndex(const JSONString &id) const {
-    for (int i = 0; i < namedHandlers_.size(); ++i) {
-        if (namedHandlers_.at(i).id == id) {
-            return i;
+void spark::LogManager::setHandlerFactory(LogHandlerFactory *factory) {
+    WITH_LOCK(mutex_) {
+        if (handlerFactory_ != factory) {
+            destroyFactoryHandlers();
+            handlerFactory_ = factory;
         }
     }
-    return -1;
 }
 
-void spark::LogManager::removeNamedHandler(int i) {
-    const NamedHandler &h = namedHandlers_.at(i);
-    activeHandlers_.removeOne(h.handler);
-    destroyNamedHandler(h);
-}
-
-void spark::LogManager::destroyNamedHandler(const NamedHandler &h) {
-    h.handlerFactory->destroyHandler(h.handler);
-    if (h.stream) {
-        h.streamFactory->destroyStream(h.stream);
+void spark::LogManager::setStreamFactory(OutputStreamFactory *factory) {
+    WITH_LOCK(mutex_) {
+        if (streamFactory_ != factory) {
+            destroyFactoryHandlers();
+            streamFactory_ = factory;
+        }
     }
+}
+
+void spark::LogManager::destroyFactoryHandler(const char *id) {
+    for (int i = 0; i < factoryHandlers_.size(); ++i) {
+        const FactoryHandler &h = factoryHandlers_.at(i);
+        if (h.id == id) {
+            activeHandlers_.removeOne(h.handler);
+            handlerFactory_->destroyHandler(h.handler);
+            if (h.stream) {
+                streamFactory_->destroyStream(h.stream);
+            }
+            factoryHandlers_.remove(i);
+            break;
+        }
+    }
+}
+
+void spark::LogManager::destroyFactoryHandlers() {
+    for (const FactoryHandler &h: factoryHandlers_) {
+        activeHandlers_.removeOne(h.handler);
+        handlerFactory_->destroyHandler(h.handler);
+        if (h.stream) {
+            streamFactory_->destroyStream(h.stream);
+        }
+    }
+    factoryHandlers_.clear();
 }
 
 spark::LogManager* spark::LogManager::instance() {
@@ -861,10 +801,10 @@ int spark::LogManager::logEnabled(int level, const char *category, void *reserve
     return (level >= minLevel);
 }
 
-// spark::*
-bool spark::logProcessConfigRequest(const char *reqData, size_t reqSize, char *repData, size_t *repSize, DataFormat fmt) {
+// spark::
+bool spark::logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt) {
     if (fmt == DATA_FORMAT_JSON) {
-        return JSONRequestHandler::process(reqData, reqSize, repData, repSize);
+        return JSONRequestHandler::process(buf, bufSize, reqSize, repSize);
     }
     return false; // Unsupported request format
 }
