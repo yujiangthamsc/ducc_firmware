@@ -81,7 +81,10 @@ else
 $(info BOOST_ROOT "$(BOOST_ROOT)")
 endif
 
+DEFINES += BOOST_NO_AUTO_PTR
 ABS_INCLUDE_DIRS += $(BOOST_ROOT)
+LIB_DIRS += $(BOOST_ROOT)/stage/lib
+LIBS += boost_regex
 
 CFLAGS += $(patsubst %,-I%,$(ABS_INCLUDE_DIRS)) -I.
 CFLAGS += -ffunction-sections -fdata-sections -Wall
@@ -93,9 +96,12 @@ CFLAGS += -Werror=deprecated-declarations
 CFLAGS += -MD -MP -MF $@.d
 CFLAGS += -DSPARK=1 -DPLATFORM_ID=3
 CFLAGS += -DDEBUG_BUILD
+CFLAGS += $(DEFINES:%=-D%)
 
 CPPFLAGS += -std=gnu++11
 CPPFLAGS += -DCATCH_CONFIG_SFINAE
+
+LDFLAGS += $(LIB_DIRS:%=-L%) $(LIBS:%=-l%)
 
 # Collect all object and dep files
 ALLOBJ += $(addprefix $(BUILD_PATH), $(CSRC:.c=.o))
