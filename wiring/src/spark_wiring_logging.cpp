@@ -33,6 +33,8 @@ namespace {
 
 using namespace spark;
 
+#if Wiring_DynamicLoggingConfig
+
 /*
     This class performs processing of configuration requests in JSON format.
 
@@ -279,6 +281,8 @@ struct FactoryDeleter {
 
 typedef FactoryDeleter<LogHandler, LogHandlerFactory, &LogHandlerFactory::destroyHandler> LogHandlerFactoryDeleter;
 typedef FactoryDeleter<Print, OutputStreamFactory, &OutputStreamFactory::destroyStream> OutputStreamFactoryDeleter;
+
+#endif // Wiring_DynamicLoggingConfig
 
 #if PLATFORM_ID == 3
 // GCC on some platforms doesn't provide strchrnul()
@@ -556,6 +560,8 @@ void spark::JSONStreamLogHandler::logMessage(const char *msg, LogLevel level, co
     writer_.stream()->write("\r\n");
 }
 
+#if Wiring_DynamicLoggingConfig
+
 // spark::DefaultLogHandlerFactory
 LogHandler* spark::DefaultLogHandlerFactory::createHandler(const char *type, LogLevel level, LogCategoryFilters filters,
             Print *stream, const JSONValue &params) {
@@ -642,16 +648,22 @@ struct spark::LogManager::FactoryHandler {
     Print *stream;
 };
 
-spark::LogManager::LogManager() :
-        handlerFactory_(DefaultLogHandlerFactory::instance()),
-        streamFactory_(DefaultOutputStreamFactory::instance()) {
+#endif // Wiring_DynamicLoggingConfig
+
+spark::LogManager::LogManager() {
+#if Wiring_DynamicLoggingConfig
+    handlerFactory_ = DefaultLogHandlerFactory::instance();
+    streamFactory_ = DefaultOutputStreamFactory::instance();
+#endif
 }
 
 spark::LogManager::~LogManager() {
     resetSystemCallbacks();
+#if Wiring_DynamicLoggingConfig
     WITH_LOCK(mutex_) {
          destroyFactoryHandlers();
     }
+#endif
 }
 
 bool spark::LogManager::addHandler(LogHandler *handler) {
@@ -673,6 +685,13 @@ void spark::LogManager::removeHandler(LogHandler *handler) {
         }
     }
 }
+
+spark::LogManager* spark::LogManager::instance() {
+    static LogManager mgr;
+    return &mgr;
+}
+
+#if Wiring_DynamicLoggingConfig
 
 bool spark::LogManager::addFactoryHandler(const char *id, const char *handlerType, LogLevel level, LogCategoryFilters filters,
         const JSONValue &handlerParams, const char *streamType, const JSONValue &streamParams) {
@@ -751,11 +770,6 @@ void spark::LogManager::setStreamFactory(OutputStreamFactory *factory) {
     }
 }
 
-spark::LogManager* spark::LogManager::instance() {
-    static LogManager mgr;
-    return &mgr;
-}
-
 void spark::LogManager::destroyFactoryHandler(const char *id) {
     for (int i = 0; i < factoryHandlers_.size(); ++i) {
         const FactoryHandler &h = factoryHandlers_.at(i);
@@ -784,6 +798,8 @@ void spark::LogManager::destroyFactoryHandlers() {
     }
     factoryHandlers_.clear();
 }
+
+#endif // Wiring_DynamicLoggingConfig
 
 void spark::LogManager::setSystemCallbacks() {
     log_set_callbacks(logMessage, logWrite, logEnabled, nullptr);
@@ -825,6 +841,8 @@ int spark::LogManager::logEnabled(int level, const char *category, void *reserve
     return (level >= minLevel);
 }
 
+#if Wiring_DynamicLoggingConfig
+
 // spark::
 bool spark::logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt) {
     if (fmt == DATA_FORMAT_JSON) {
@@ -832,3 +850,5 @@ bool spark::logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t 
     }
     return false; // Unsupported request format
 }
+
+#endif // Wiring_DynamicLoggingConfig

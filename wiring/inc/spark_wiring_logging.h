@@ -22,13 +22,17 @@
 #include <cstdarg>
 
 #include "logging.h"
-#include "system_control.h"
 
 #include "spark_wiring_json.h"
 #include "spark_wiring_print.h"
 #include "spark_wiring_string.h"
 #include "spark_wiring_thread.h"
 #include "spark_wiring_vector.h"
+#include "spark_wiring_platform.h"
+
+#if Wiring_DynamicLoggingConfig
+#include "system_control.h"
+#endif
 
 namespace spark {
 
@@ -445,6 +449,8 @@ private:
     friend class Logger;
 };
 
+#if Wiring_DynamicLoggingConfig
+
 // NOTE: This is an experimental API and is subject to change
 class LogHandlerFactory {
 public:
@@ -483,6 +489,8 @@ private:
     static void getParams(const JSONValue &params, int *baudRate);
 };
 
+#endif // Wiring_DynamicLoggingConfig
+
 /*!
     \brief Log manager.
 
@@ -510,6 +518,9 @@ public:
         \param handler Handler instance.
     */
     void removeHandler(LogHandler *handler);
+
+#if Wiring_DynamicLoggingConfig
+
     /*!
         \brief Creates and registers a factory log handler.
 
@@ -555,6 +566,8 @@ public:
     */
     void setStreamFactory(OutputStreamFactory *factory);
 
+#endif // Wiring_DynamicLoggingConfig
+
     /*!
         \brief Returns log manager's instance.
     */
@@ -568,9 +581,12 @@ private:
     struct FactoryHandler;
 
     Vector<LogHandler*> activeHandlers_;
+
+#if Wiring_DynamicLoggingConfig
     Vector<FactoryHandler> factoryHandlers_;
     LogHandlerFactory *handlerFactory_;
     OutputStreamFactory *streamFactory_;
+#endif
 
 #if PLATFORM_THREADING
     Mutex mutex_; // TODO: Use read-write lock?
@@ -579,8 +595,10 @@ private:
     // This class can be instantiated only via instance() method
     LogManager();
 
+#if Wiring_DynamicLoggingConfig
     void destroyFactoryHandler(const char *id);
     void destroyFactoryHandlers();
+#endif
 
     static void setSystemCallbacks();
     static void resetSystemCallbacks();
@@ -590,6 +608,8 @@ private:
     static void logWrite(const char *data, size_t size, int level, const char *category, void *reserved);
     static int logEnabled(int level, const char *category, void *reserved);
 };
+
+#if Wiring_DynamicLoggingConfig
 
 /*!
     \brief Performs processing of a configuration request.
@@ -603,6 +623,8 @@ private:
     \return `false` in case of error.
 */
 bool logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt);
+
+#endif // Wiring_DynamicLoggingConfig
 
 /*!
     \brief Default logger instance.
@@ -927,6 +949,8 @@ inline void spark::AttributedLogger::log(LogLevel level, const char *fmt, va_lis
     log_message_v(level, name_, &attr_, nullptr, fmt, args);
 }
 
+#if Wiring_DynamicLoggingConfig
+
 // spark::LogHandlerFactory
 inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
     delete handler;
@@ -936,5 +960,7 @@ inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
 inline void spark::OutputStreamFactory::destroyStream(Print *stream) {
     delete stream;
 }
+
+#endif // Wiring_DynamicLoggingConfig
 
 #endif // SPARK_WIRING_LOGGING_H

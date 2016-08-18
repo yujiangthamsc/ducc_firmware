@@ -238,10 +238,6 @@ inline Checker check(const JSONValue &val) {
     return Checker(val);
 }
 
-inline Checker check(const std::string &json) {
-    return Checker(parse(json));
-}
-
 inline Checker check(const char *json) {
     return Checker(parse(json));
 }
