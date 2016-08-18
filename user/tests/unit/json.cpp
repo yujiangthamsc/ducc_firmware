@@ -1,11 +1,12 @@
-#include "catch.hpp"
-
 #include "spark_wiring_json.h"
 #include "spark_wiring_print.h"
 
 #include "tools/stream.h"
 #include "tools/buffer.h"
 
+#include <boost/variant.hpp>
+
+#include <deque>
 #include <string>
 #include <cstdlib>
 
@@ -47,122 +48,202 @@ inline T fromString(const JSONString &s, bool *ok = nullptr) {
     return fromString<T>(std::string(s.data(), s.size()), ok);
 }
 
-void checkString(const JSONString &s, const std::string &val) {
+void checkString(const JSONString &s, const std::string &str) {
     const size_t n = s.size();
-    REQUIRE(n == val.size());
+    REQUIRE(n == str.size());
     CHECK(s.isEmpty() == !n);
     const char *d = s.data();
     REQUIRE(d != nullptr);
     CHECK(d[n] == '\0'); // JSONString::data() returns null-terminated string
-    CHECK(std::string(d, n) == val);
+    CHECK(std::string(d, n) == str);
 }
 
-void checkString(const JSONValue &v, const std::string &val) {
-    REQUIRE(v.type() == JSON_TYPE_STRING);
-    CHECK(v.isString() == true);
-    CHECK(v.isValid() == true);
-    const JSONString s = v.toString();
-    CHECK(v.toBool() == fromString<bool>(s));
-    CHECK(v.toInt() == fromString<int>(s));
-    CHECK(v.toDouble() == fromString<double>(s));
-    checkString(s, val);
+class Checker {
+public:
+    Checker() {
+    }
+
+    explicit Checker(const JSONValue &val) {
+        v_.push_back(val);
+    }
+
+    Checker& invalid() {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_INVALID);
+        CHECK(v.isValid() == false); // Check conversions to other types
+        CHECK(v.toBool() == false);
+        CHECK(v.toInt() == 0);
+        CHECK(v.toDouble() == 0.0);
+        checkString(v.toString(), "");
+        return *this;
+    }
+
+    Checker& null() {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_NULL);
+        CHECK(v.isNull() == true);
+        CHECK(v.isValid() == true);
+        CHECK(v.toBool() == false);
+        CHECK(v.toInt() == 0);
+        CHECK(v.toDouble() == 0.0);
+        checkString(v.toString(), "");
+        return *this;
+    }
+
+    Checker& boolean(bool val) {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_BOOL);
+        CHECK(v.isBool() == true);
+        CHECK(v.isValid() == true);
+        CHECK(v.toBool() == val);
+        CHECK((bool)v.toInt() == val);
+        CHECK((bool)v.toDouble() == val);
+        checkString(v.toString(), val ? "true" : "false");
+        return *this;
+    }
+
+    template<typename T>
+    Checker& number(T val) {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_NUMBER);
+        CHECK(v.isNumber());
+        CHECK(v.isValid());
+        CHECK((T)v.toBool() == (bool)val);
+        CHECK((T)v.toInt() == (int)val);
+        CHECK((T)v.toDouble() == (double)val);
+        CHECK(fromString<T>(v.toString()) == val);
+        return *this;
+    }
+
+    Checker& string(const std::string &str) {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_STRING);
+        CHECK(v.isString() == true);
+        CHECK(v.isValid() == true);
+        const JSONString s = v.toString();
+        CHECK(v.toBool() == fromString<bool>(s));
+        CHECK(v.toInt() == fromString<int>(s));
+        CHECK(v.toDouble() == fromString<double>(s));
+        checkString(s, str);
+        return *this;
+    }
+
+    Checker& beginArray() {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_ARRAY);
+        CHECK(v.isValid() == true);
+        CHECK(v.toBool() == false);
+        CHECK(v.toInt() == 0);
+        CHECK(v.toDouble() == 0.0);
+        checkString(v.toString(), "");
+        v_.push_back(JSONArrayIterator(v));
+        return *this;
+    }
+
+    Checker& endArray() {
+        const Variant v = v_.back();
+        if (v.which() != ARRAY) {
+            FAIL("Unexpected checker state");
+        }
+        v_.pop_back();
+        JSONArrayIterator it = boost::get<JSONArrayIterator>(v);
+        REQUIRE(it.count() == 0);
+        CHECK(it.next() == false);
+        return *this;
+    }
+
+    Checker& beginObject() {
+        const JSONValue v = value();
+        REQUIRE(v.type() == JSON_TYPE_OBJECT);
+        CHECK(v.isValid() == true);
+        CHECK(v.toBool() == false);
+        CHECK(v.toInt() == 0);
+        CHECK(v.toDouble() == 0.0);
+        checkString(v.toString(), "");
+        v_.push_back(JSONObjectIterator(v));
+        return *this;
+    }
+
+    Checker& endObject() {
+        const Variant v = v_.back();
+        if (v.which() != OBJECT) {
+            FAIL("Unexpected checker state");
+        }
+        v_.pop_back();
+        JSONObjectIterator it = boost::get<JSONObjectIterator>(v);
+        REQUIRE(it.count() == 0);
+        CHECK(it.next() == false);
+        return *this;
+    }
+
+    Checker& name(const std::string &str) {
+        Variant &v = v_.back();
+        if (v.which() != OBJECT) {
+            FAIL("Unexpected checker state");
+        }
+        JSONObjectIterator it = boost::get<JSONObjectIterator>(v);
+        const size_t n = it.count();
+        REQUIRE(it.next() == true);
+        CHECK(it.count() == n - 1);
+        checkString(it.name(), str);
+        v = it; // Update iterator
+        return *this;
+    }
+
+private:
+    enum Which {
+        BLANK,
+        VALUE,
+        ARRAY,
+        OBJECT
+    };
+
+    typedef boost::variant<boost::blank, JSONValue, JSONArrayIterator, JSONObjectIterator> Variant;
+
+    std::deque<Variant> v_;
+
+    JSONValue value() {
+        if (v_.empty()) {
+            FAIL("Unexpected checker state");
+        }
+        Variant &v = v_.back();
+        switch (v.which()) {
+        case VALUE: {
+            return boost::get<JSONValue>(v);
+        }
+        case ARRAY: { // JSONArrayIterator
+            JSONArrayIterator it = boost::get<JSONArrayIterator>(v);
+            const size_t n = it.count();
+            REQUIRE(it.next() == true);
+            CHECK(it.count() == n - 1);
+            v = it; // Update iterator
+            return it.value();
+        }
+        case OBJECT: { // JSONObjectIterator
+            const JSONObjectIterator it = boost::get<JSONObjectIterator>(v);
+            return it.value();
+        }
+        default:
+            FAIL("Unexpected checker state");
+            return JSONValue();
+        }
+    }
+};
+
+inline JSONValue parse(const std::string &json) {
+    return JSONValue::parseCopy(json.data(), json.size());
 }
 
-inline void checkString(const JSONValue &v, const char *val) { // Helper function for checkNext()
-    checkString(v, std::string(val));
+inline Checker check(const JSONValue &val) {
+    return Checker(val);
 }
 
-template<typename T>
-void checkNumber(const JSONValue &v, T val) {
-    REQUIRE(v.type() == JSON_TYPE_NUMBER);
-    CHECK(v.isNumber());
-    CHECK(v.isValid());
-    CHECK((T)v.toBool() == (bool)val);
-    CHECK((T)v.toInt() == (int)val);
-    CHECK((T)v.toDouble() == (double)val);
-    CHECK(fromString<T>(v.toString()) == val);
+inline Checker check(const std::string &json) {
+    return Checker(parse(json));
 }
 
-void checkBool(const JSONValue &v, bool val) {
-    REQUIRE(v.type() == JSON_TYPE_BOOL);
-    CHECK(v.isBool() == true);
-    CHECK(v.isValid() == true);
-    CHECK(v.toBool() == val);
-    CHECK((bool)v.toInt() == val);
-    CHECK((bool)v.toDouble() == val);
-    checkString(v.toString(), val ? "true" : "false");
-}
-
-void checkNull(const JSONValue &v) {
-    REQUIRE(v.type() == JSON_TYPE_NULL);
-    CHECK(v.isNull() == true);
-    CHECK(v.isValid() == true);
-    CHECK(v.toBool() == false);
-    CHECK(v.toInt() == 0);
-    CHECK(v.toDouble() == 0.0);
-    checkString(v.toString(), "");
-}
-
-void checkInvalid(const JSONValue &v) {
-    REQUIRE(v.type() == JSON_TYPE_INVALID);
-    CHECK(v.isValid() == false);
-    CHECK(v.toBool() == false);
-    CHECK(v.toInt() == 0);
-    CHECK(v.toDouble() == 0.0);
-    checkString(v.toString(), "");
-}
-
-JSONValue next(JSONArrayIterator &it) {
-    const size_t n = it.count();
-    REQUIRE(it.next() == true);
-    CHECK(it.count() == n - 1);
-    return it.value();
-}
-
-JSONValue next(JSONObjectIterator &it, JSONString *name) {
-    const size_t n = it.count();
-    REQUIRE(it.next() == true);
-    CHECK(it.count() == n - 1);
-    *name = it.name();
-    return it.value();
-}
-
-template<typename T>
-inline void checkNext(JSONArrayIterator &it, void(*checkValue)(const JSONValue&, T), T val) {
-    checkValue(next(it), val);
-}
-
-inline void checkNext(JSONArrayIterator &it, void(*checkValue)(const JSONValue&)) {
-    checkValue(next(it));
-}
-
-template<typename T>
-inline void checkNext(JSONObjectIterator &it, void(*checkValue)(const JSONValue&, T), const std::string &name, T val) {
-    JSONString s;
-    const JSONValue v = next(it, &s);
-    checkString(s, name);
-    checkValue(v, val);
-}
-
-inline void checkNext(JSONObjectIterator &it, void(*checkValue)(const JSONValue&), const std::string &name) {
-    JSONString s;
-    const JSONValue v = next(it, &s);
-    checkString(s, name);
-    checkValue(v);
-}
-
-void checkAtEnd(JSONArrayIterator &it) {
-    REQUIRE(it.count() == 0);
-    CHECK(it.next() == false);
-}
-
-void checkAtEnd(JSONObjectIterator &it) {
-    REQUIRE(it.count() == 0);
-    CHECK(it.next() == false);
-}
-
-inline JSONValue parse(const char *json) {
-    return JSONValue::parseCopy(json);
+inline Checker check(const char *json) {
+    return Checker(parse(json));
 }
 
 } // namespace
@@ -175,55 +256,422 @@ inline std::ostream& operator<<(std::ostream &strm, const JSONString &str) {
 
 } // namespace spark
 
-TEST_CASE("JSONValue") {
-    SECTION("construction") {
-        checkInvalid(JSONValue());
-    }
-
+TEST_CASE("Parsing JSON") {
     SECTION("null") {
-        checkNull(parse("null"));
+        check("null").null();
     }
 
     SECTION("bool") {
-        checkBool(parse("true"), true);
-        checkBool(parse("false"), false);
+        check("true").boolean(true);
+        check("false").boolean(false);
     }
 
     SECTION("number") {
         SECTION("int") {
-            checkNumber(parse("0"), 0);
-            checkNumber(parse("1"), 1);
-            checkNumber(parse("-1"), -1);
-            checkNumber(parse("12345"), 12345);
-            checkNumber(parse("-12345"), -12345);
-            checkNumber(parse("-2147483648"), -2147483648); // INT_MIN
-            checkNumber(parse("2147483647"), 2147483647); // INT_MAX
+            check("0").number(0);
+            check("1").number(1);
+            check("-1").number(-1);
+            check("12345").number(12345);
+            check("-12345").number(-12345);
+            check("-2147483648").number(-2147483648); // INT_MIN
+            check("2147483647").number(2147483647); // INT_MAX
         }
         SECTION("double") {
-            checkNumber(parse("0.0"), 0.0);
-            checkNumber(parse("1.0"), 1.0);
-            checkNumber(parse("-1.0"), -1.0);
-            checkNumber(parse("0.5"), 0.5);
-            checkNumber(parse("-0.5"), -0.5);
-            checkNumber(parse("3.1416"), 3.1416);
-            checkNumber(parse("-3.1416"), -3.1416);
-            checkNumber(parse("2.22507e-308"), 2.22507e-308); // ~DBL_MIN
-            checkNumber(parse("1.79769e+308"), 1.79769e+308); // ~DBL_MAX
+            check("0.0").number(0.0);
+            check("1.0").number(1.0);
+            check("-1.0").number(-1.0);
+            check("0.5").number(0.5);
+            check("-0.5").number(-0.5);
+            check("3.1416").number(3.1416);
+            check("-3.1416").number(-3.1416);
+            check("2.22507e-308").number(2.22507e-308); // ~DBL_MIN
+            check("1.79769e+308").number(1.79769e+308); // ~DBL_MAX
         }
     }
 
     SECTION("string") {
-        checkString(parse("\"\""), ""); // Empty string
-        checkString(parse("\"abc\""), "abc");
-        checkString(parse("\"a\""), "a"); // Single character
-        checkString(parse("\"\\\"\""), "\""); // Single escaped character
-        checkString(parse("\"\\\"\\/\\\\\\b\\f\\n\\r\\t\""), "\"/\\\b\f\n\r\t"); // Named escaped characters
-        checkString(parse("\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b"
+        check("\"\"").string(""); // Empty string
+        check("\"abc\"").string("abc");
+        check("\"a\"").string("a"); // Single character
+        check("\"\\\"\"").string("\""); // Single escaped character
+        check("\"\\\"\\/\\\\\\b\\f\\n\\r\\t\"").string("\"/\\\b\f\n\r\t"); // Named escaped characters
+        check("\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b"
                 "\\u000c\\u000d\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019"
-                "\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\""),
+                "\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\"").string(
                 std::string("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15"
                         "\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f", 32)); // Control characters
-        checkString(parse("\"\\u2014\""), "\\u2014"); // Unicode characters are not processed
+        check("\"\\u2014\"").string("\\u2014"); // Unicode characters are not processed
+    }
+
+    SECTION("array") {
+        SECTION("empty") {
+            check("[]").beginArray().endArray();
+        }
+        SECTION("single element") {
+            check("[null]").beginArray()
+                    .null()
+                    .endArray();
+        }
+        SECTION("primitive elements") {
+            check("[null,true,2,3.14,\"abcd\"]").beginArray()
+                    .null()
+                    .boolean(true)
+                    .number(2)
+                    .number(3.14)
+                    .string("abcd")
+                    .endArray();
+        }
+        SECTION("nested array") {
+            check("[1.1,[2.1,2.2,2.3],1.3]").beginArray()
+                    .number(1.1)
+                    .beginArray()
+                            .number(2.1)
+                            .number(2.2)
+                            .number(2.3)
+                            .endArray()
+                    .number(1.3)
+                    .endArray();
+        }
+        SECTION("nested object") {
+            check("[1.1,{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},1.3]").beginArray()
+                    .number(1.1)
+                    .beginObject()
+                            .name("2.1").number(2.1)
+                            .name("2.2").number(2.2)
+                            .name("2.3").number(2.3)
+                            .endObject()
+                    .number(1.3)
+                    .endArray();
+        }
+        SECTION("deeply nested array") {
+            Checker c = check("[[[[[[[[[[[]]]]]]]]]]]");
+            c.beginArray();
+            for (int i = 0; i < 10; ++i) {
+                c.beginArray();
+            }
+            for (int i = 0; i < 10; ++i) {
+                c.endArray();
+            }
+            c.endArray();
+        }
+    }
+
+    SECTION("object") {
+        SECTION("empty") {
+            check("{}").beginObject().endObject();
+        }
+        SECTION("single element") {
+            check("{\"null\":null}").beginObject()
+                    .name("null").null()
+                    .endObject();
+        }
+        SECTION("primitive elements") {
+            check("{\"null\":null,\"bool\":true,\"int\":2,\"double\":3.14,\"string\":\"abcd\"}").beginObject()
+                    .name("null").null()
+                    .name("bool").boolean(true)
+                    .name("int").number(2)
+                    .name("double").number(3.14)
+                    .name("string").string("abcd")
+                    .endObject();
+        }
+        SECTION("nested object") {
+            check("{\"1.1\":1.1,\"1.2\":{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},\"1.3\":1.3}").beginObject()
+                    .name("1.1").number(1.1)
+                    .name("1.2").beginObject()
+                            .name("2.1").number(2.1)
+                            .name("2.2").number(2.2)
+                            .name("2.3").number(2.3)
+                            .endObject()
+                    .name("1.3").number(1.3)
+                    .endObject();
+        }
+        SECTION("nested array") {
+            check("{\"1.1\":1.1,\"1.2\":[2.1,2.2,2.3],\"1.3\":1.3}").beginObject()
+                    .name("1.1").number(1.1)
+                    .name("1.2").beginArray()
+                            .number(2.1)
+                            .number(2.2)
+                            .number(2.3)
+                            .endArray()
+                    .name("1.3").number(1.3)
+                    .endObject();
+        }
+        SECTION("deeply nested object") {
+            Checker c = check("{\"1\":{\"2\":{\"3\":{\"4\":{\"5\":{\"6\":{\"7\":{\"8\":{\"9\":{\"10\":{}}}}}}}}}}}");
+            c.beginObject();
+            for (int i = 1; i <= 10; ++i) {
+                c.name(std::to_string(i)).beginObject();
+            }
+            for (int i = 1; i <= 10; ++i) {
+                c.endObject();
+            }
+            c.endObject();
+        }
+    }
+
+    SECTION("parsing errors") {
+        check("").invalid(); // Empty source data
+        check("[").invalid(); // Malformed array
+        check("]").invalid();
+        check("[1,").invalid();
+        check("{").invalid(); // Malformed object
+        check("}").invalid();
+        check("{null").invalid();
+        check("{false").invalid();
+        check("{1").invalid();
+        check("{\"1\"").invalid();
+        check("{\"1\":").invalid();
+        check("\"\\x\"").invalid(); // Unknown escaped character
+        check("\"\\U0001\"").invalid(); // Uppercase 'U'
+        check("\"\\u000x\"").invalid(); // Invalid hex value
+        check("\"\\u001\"").invalid();
+        check("\"\\u01\"").invalid();
+        check("\"\\u\"").invalid();
+    }
+}
+
+TEST_CASE("Writing JSON") {
+    test::OutputStream data;
+    JSONStreamWriter json(data);
+
+    SECTION("null") {
+        json.nullValue();
+        check(data).equals("null");
+    }
+
+    SECTION("bool") {
+        SECTION("true") {
+            json.value(true);
+            check(data).equals("true");
+        }
+        SECTION("false") {
+            json.value(false);
+            check(data).equals("false");
+        }
+    }
+
+    SECTION("number") {
+        SECTION("int") {
+            SECTION("0") {
+                json.value(0);
+                check(data).equals("0");
+            }
+            SECTION("1") {
+                json.value(1);
+                check(data).equals("1");
+            }
+            SECTION("-1") {
+                json.value(-1);
+                check(data).equals("-1");
+            }
+            SECTION("12345") {
+                json.value(12345);
+                check(data).equals("12345");
+            }
+            SECTION("-12345") {
+                json.value(-12345);
+                check(data).equals("-12345");
+            }
+            SECTION("min") {
+                json.value((int)-2147483648); // INT_MIN
+                check(data).equals("-2147483648");
+            }
+            SECTION("max") {
+                json.value((int)2147483647); // INT_MAX
+                check(data).equals("2147483647");
+            }
+        }
+        SECTION("double") {
+            SECTION("0.0") {
+                json.value(0.0);
+                check(data).equals("0");
+            }
+            SECTION("1.0") {
+                json.value(1.0);
+                check(data).equals("1");
+            }
+            SECTION("-1.0") {
+                json.value(-1.0);
+                check(data).equals("-1");
+            }
+            SECTION("0.5") {
+                json.value(0.5);
+                check(data).equals("0.5");
+            }
+            SECTION("-0.5") {
+                json.value(-0.5);
+                check(data).equals("-0.5");
+            }
+            SECTION("3.1416") {
+                json.value(3.1416);
+                check(data).equals("3.1416");
+            }
+            SECTION("-3.1416") {
+                json.value(-3.1416);
+                check(data).equals("-3.1416");
+            }
+            SECTION("min") {
+                json.value(2.22507e-308); // ~DBL_MIN
+                check(data).equals("2.22507e-308");
+            }
+            SECTION("max") {
+                json.value(1.79769e+308); // ~DBL_MAX
+                check(data).equals("1.79769e+308");
+            }
+        }
+    }
+
+    SECTION("string") {
+        SECTION("empty") {
+            json.value("");
+            check(data).equals("\"\"");
+        }
+        SECTION("test string") {
+            json.value("abc");
+            check(data).equals("\"abc\"");
+        }
+        SECTION("single character") {
+            json.value("a");
+            check(data).equals("\"a\"");
+        }
+        SECTION("single escaped character") {
+            json.value("\"");
+            check(data).equals("\"\\\"\"");
+        }
+        SECTION("named escaped characters") {
+            json.value("\"/\\\b\f\n\r\t");
+            check(data).equals("\"\\\"/\\\\\\b\\f\\n\\r\\t\""); // '/' is never escaped
+        }
+        SECTION("control characters") {
+            json.value("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16"
+                    "\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f", 32);
+            check(data).equals("\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e"
+                    "\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c"
+                    "\\u001d\\u001e\\u001f\"");
+        }
+    }
+
+    SECTION("array") {
+        SECTION("empty") {
+            json.beginArray();
+            json.endArray();
+            check(data).equals("[]");
+        }
+        SECTION("single element") {
+            json.beginArray();
+            json.nullValue();
+            json.endArray();
+            check(data).equals("[null]");
+        }
+        SECTION("primitive elements") {
+            json.beginArray();
+            json.nullValue().value(true).value(2).value(3.14).value("abcd");
+            json.endArray();
+            check(data).equals("[null,true,2,3.14,\"abcd\"]");
+        }
+        SECTION("nested array") {
+            json.beginArray();
+            json.value(1.1);
+            json.beginArray();
+            json.value(2.1).value(2.2).value(2.3);
+            json.endArray();
+            json.value(1.3);
+            json.endArray();
+            check(data).equals("[1.1,[2.1,2.2,2.3],1.3]");
+        }
+        SECTION("nested object") {
+            json.beginArray();
+            json.value(1.1);
+            json.beginObject();
+            json.name("2.1").value(2.1);
+            json.name("2.2").value(2.2);
+            json.name("2.3").value(2.3);
+            json.endObject();
+            json.value(1.3);
+            json.endArray();
+            check(data).equals("[1.1,{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},1.3]");
+        }
+        SECTION("deeply nested array") {
+            json.beginArray();
+            for (int i = 0; i < 10; ++i) {
+                json.beginArray();
+            }
+            for (int i = 0; i < 10; ++i) {
+                json.endArray();
+            }
+            json.endArray();
+            check(data).equals("[[[[[[[[[[[]]]]]]]]]]]");
+        }
+    }
+
+    SECTION("object") {
+        SECTION("empty") {
+            json.beginObject();
+            json.endObject();
+            check(data).equals("{}");
+        }
+        SECTION("single element") {
+            json.beginObject();
+            json.name("null").nullValue();
+            json.endObject();
+            check(data).equals("{\"null\":null}");
+        }
+        SECTION("primitive elements") {
+            json.beginObject();
+            json.name("null").nullValue();
+            json.name("bool").value(true);
+            json.name("int").value(2);
+            json.name("double").value(3.14);
+            json.name("string").value("abcd");
+            json.endObject();
+            check(data).equals("{\"null\":null,\"bool\":true,\"int\":2,\"double\":3.14,\"string\":\"abcd\"}");
+        }
+        SECTION("nested object") {
+            json.beginObject();
+            json.name("1.1").value(1.1);
+            json.name("1.2").beginObject();
+            json.name("2.1").value(2.1);
+            json.name("2.2").value(2.2);
+            json.name("2.3").value(2.3);
+            json.endObject();
+            json.name("1.3").value(1.3);
+            json.endObject();
+            check(data).equals("{\"1.1\":1.1,\"1.2\":{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},\"1.3\":1.3}");
+        }
+        SECTION("nested array") {
+            json.beginObject();
+            json.name("1.1").value(1.1);
+            json.name("1.2").beginArray();
+            json.value(2.1).value(2.2).value(2.3);
+            json.endArray();
+            json.name("1.3").value(1.3);
+            json.endObject();
+            check(data).equals("{\"1.1\":1.1,\"1.2\":[2.1,2.2,2.3],\"1.3\":1.3}");
+        }
+        SECTION("deeply nested object") {
+            json.beginObject();
+            for (int i = 1; i <= 10; ++i) {
+                json.name(std::to_string(i).c_str()).beginObject();
+            }
+            for (int i = 1; i <= 10; ++i) {
+                json.endObject();
+            }
+            json.endObject();
+            check(data).equals("{\"1\":{\"2\":{\"3\":{\"4\":{\"5\":{\"6\":{\"7\":{\"8\":{\"9\":{\"10\":{}}}}}}}}}}}");
+        }
+        SECTION("escaped name characters") {
+            json.beginObject();
+            json.name("a\tb\n").value("a\tb\n");
+            json.endObject();
+            check(data).equals("{\"a\\tb\\n\":\"a\\tb\\n\"}");
+        }
+    }
+}
+
+TEST_CASE("JSONValue") {
+    SECTION("construction") {
+        const JSONValue v; // Constructs invalid value
+        check(v).invalid();
     }
 
     SECTION("in-place processing vs copying") {
@@ -231,49 +679,26 @@ TEST_CASE("JSONValue") {
             char json[] = "\"abc\"";
             const JSONValue v = JSONValue::parse(json, sizeof(json));
             json[2] = 'B';
-            CHECK(v.toString() == "aBc");
+            check(v).string("aBc");
         }
         SECTION("copying") {
             char json[] = "\"abc\"";
             const JSONValue v = JSONValue::parseCopy(json, sizeof(json));
             json[2] = 'B';
-            CHECK(v.toString() == "abc"); // Source data is not affected
+            check(v).string("abc"); // Source data is not affected
         }
         SECTION("implicit copying") {
             char json[] = "1x";
             const JSONValue v = JSONValue::parse(json, 1); // No space for term. null
-            CHECK(v.toInt() == 1);
-            CHECK(v.toString() == "1");
+            check(v).number(1);
             const char *s = v.toString().data();
             CHECK(s[1] == '\0'); // JSONString::data() returns null-terminated string
             CHECK(json[1] == 'x');
         }
     }
-
-    SECTION("parsing errors") {
-        checkInvalid(parse("")); // Empty source data
-        checkInvalid(parse("[")); // Malformed array
-        checkInvalid(parse("]"));
-        checkInvalid(parse("[1,"));
-        checkInvalid(parse("{")); // Malformed object
-        checkInvalid(parse("}"));
-        checkInvalid(parse("{null"));
-        checkInvalid(parse("{false"));
-        checkInvalid(parse("{1"));
-        checkInvalid(parse("{\"1\""));
-        checkInvalid(parse("{\"1\":"));
-        checkInvalid(parse("\"\\x\"")); // Unknown escaped character
-        checkInvalid(parse("\"\\U0001\"")); // Uppercase 'U'
-        checkInvalid(parse("\"\\u000x\"")); // Invalid hex value
-        checkInvalid(parse("\"\\u001\""));
-        checkInvalid(parse("\"\\u01\""));
-        checkInvalid(parse("\"\\u\""));
-    }
 }
 
 TEST_CASE("JSONString") {
-    // Most of the functionality is already checked in JSONValue test cases via checkString() function
-    // and its overloads. Here we mostly check remaining methods of the class
     SECTION("construction") {
         checkString(JSONString(), "");
         checkString(JSONString(JSONValue()), ""); // Constructing from invalid JSONValue
@@ -309,68 +734,14 @@ TEST_CASE("JSONString") {
 TEST_CASE("JSONArrayIterator") {
     SECTION("construction") {
         JSONArrayIterator it1;
-        checkInvalid(it1.value());
-        checkAtEnd(it1);
+        check(it1.value()).invalid();
+        CHECK(it1.count() == 0);
+        CHECK(it1.next() == false);
         const JSONValue v;
         JSONArrayIterator it2(v); // Constructing from invalid JSONValue
-        checkInvalid(it2.value());
-        checkAtEnd(it2);
-    }
-
-    SECTION("empty array") {
-        JSONArrayIterator it(parse("[]"));
-        checkInvalid(it.value());
-        checkAtEnd(it);
-    }
-
-    SECTION("single element") {
-        JSONArrayIterator it(parse("[null]"));
-        checkNext(it, checkNull);
-        checkAtEnd(it);
-    }
-
-    SECTION("primitive elements") {
-        JSONArrayIterator it(parse("[null,true,2,3.14,\"abcd\"]"));
-        checkNext(it, checkNull);
-        checkNext(it, checkBool, true);
-        checkNext(it, checkNumber, 2);
-        checkNext(it, checkNumber, 3.14);
-        checkNext(it, checkString, "abcd");
-        checkAtEnd(it);
-    }
-
-    SECTION("nested array") {
-        JSONArrayIterator it1(parse("[1.1,[2.1,2.2,2.3],1.3]"));
-        checkNext(it1, checkNumber, 1.1);
-        JSONArrayIterator it2(next(it1)); // Nested array
-        checkNext(it2, checkNumber, 2.1);
-        checkNext(it2, checkNumber, 2.2);
-        checkNext(it2, checkNumber, 2.3);
-        checkAtEnd(it2);
-        checkNext(it1, checkNumber, 1.3);
-        checkAtEnd(it1);
-    }
-
-    SECTION("nested object") {
-        JSONArrayIterator it1(parse("[1.1,{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},1.3]"));
-        checkNext(it1, checkNumber, 1.1);
-        JSONObjectIterator it2(next(it1)); // Nested object
-        checkNext(it2, checkNumber, "2.1", 2.1);
-        checkNext(it2, checkNumber, "2.2", 2.2);
-        checkNext(it2, checkNumber, "2.3", 2.3);
-        checkAtEnd(it2);
-        checkNext(it1, checkNumber, 1.3);
-        checkAtEnd(it1);
-    }
-
-    SECTION("deeply nested array") {
-        JSONArrayIterator it1(parse("[[[[[[[[[[[]]]]]]]]]]]"));
-        for (int i = 0; i < 10; ++i) {
-            JSONArrayIterator it2(next(it1));
-            checkAtEnd(it1);
-            it1 = it2;
-        }
-        checkAtEnd(it1); // Innermost array
+        check(it2.value()).invalid();
+        CHECK(it2.count() == 0);
+        CHECK(it2.next() == false);
     }
 }
 
@@ -378,348 +749,50 @@ TEST_CASE("JSONObjectIterator") {
     SECTION("construction") {
         JSONObjectIterator it1;
         checkString(it1.name(), "");
-        checkInvalid(it1.value());
-        checkAtEnd(it1);
+        check(it1.value()).invalid();
+        CHECK(it1.count() == 0);
+        CHECK(it1.next() == false);
         const JSONValue v;
         JSONObjectIterator it2(v); // Constructing from invalid JSONValue
         checkString(it2.name(), "");
-        checkInvalid(it2.value());
-        checkAtEnd(it2);
-    }
-
-    SECTION("empty object") {
-        JSONObjectIterator it(parse("{}"));
-        checkString(it.name(), "");
-        checkInvalid(it.value());
-        checkAtEnd(it);
-    }
-
-    SECTION("single element") {
-        JSONObjectIterator it(parse("{\"null\":null}"));
-        checkNext(it, checkNull, "null");
-        checkAtEnd(it);
-    }
-
-    SECTION("primitive elements") {
-        JSONObjectIterator it(parse("{\"null\":null,\"bool\":true,\"int\":2,\"double\":3.14,\"string\":\"abcd\"}"));
-        checkNext(it, checkNull, "null");
-        checkNext(it, checkBool, "bool", true);
-        checkNext(it, checkNumber, "int", 2);
-        checkNext(it, checkNumber, "double", 3.14);
-        checkNext(it, checkString, "string", "abcd");
-        checkAtEnd(it);
-    }
-
-    SECTION("nested object") {
-        JSONObjectIterator it1(parse("{\"1.1\":1.1,\"1.2\":{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},\"1.3\":1.3}"));
-        checkNext(it1, checkNumber, "1.1", 1.1);
-        JSONString s;
-        JSONObjectIterator it2(next(it1, &s)); // Nested object
-        checkString(s, "1.2");
-        checkNext(it2, checkNumber, "2.1", 2.1);
-        checkNext(it2, checkNumber, "2.2", 2.2);
-        checkNext(it2, checkNumber, "2.3", 2.3);
-        checkAtEnd(it2);
-        checkNext(it1, checkNumber, "1.3", 1.3);
-        checkAtEnd(it1);
-    }
-
-    SECTION("nested array") {
-        JSONObjectIterator it1(parse("{\"1.1\":1.1,\"1.2\":[2.1,2.2,2.3],\"1.3\":1.3}"));
-        checkNext(it1, checkNumber, "1.1", 1.1);
-        JSONString s;
-        JSONArrayIterator it2(next(it1, &s)); // Nested array
-        checkString(s, "1.2");
-        checkNext(it2, checkNumber, 2.1);
-        checkNext(it2, checkNumber, 2.2);
-        checkNext(it2, checkNumber, 2.3);
-        checkAtEnd(it2);
-        checkNext(it1, checkNumber, "1.3", 1.3);
-        checkAtEnd(it1);
-    }
-
-    SECTION("deeply nested object") {
-        JSONObjectIterator it1(parse("{\"1\":{\"2\":{\"3\":{\"4\":{\"5\":{\"6\":{\"7\":{\"8\":{\"9\":{\"10\":{}}}}}}}}}}}"));
-        for (int i = 1; i <= 10; ++i) {
-            JSONString s;
-            JSONObjectIterator it2(next(it1, &s));
-            checkString(s, std::to_string(i));
-            checkAtEnd(it1);
-            it1 = it2;
-        }
-        checkAtEnd(it1); // Innermost object
+        check(it2.value()).invalid();
+        CHECK(it2.count() == 0);
+        CHECK(it2.next() == false);
     }
 }
 
 TEST_CASE("JSONStreamWriter") {
-    test::StringOutputStream data;
-    JSONStreamWriter json(data);
-
     SECTION("construction") {
-        CHECK(json.stream() == &data);
-        data.checkEmpty();
-    }
-
-    SECTION("null") {
-        json.nullValue();
-        data.checkEquals("null");
-    }
-
-    SECTION("bool") {
-        SECTION("true") {
-            json.value(true);
-            data.checkEquals("true");
-        }
-        SECTION("false") {
-            json.value(false);
-            data.checkEquals("false");
-        }
-    }
-
-    SECTION("number") {
-        SECTION("int") {
-            SECTION("0") {
-                json.value(0);
-                data.checkEquals("0");
-            }
-            SECTION("1") {
-                json.value(1);
-                data.checkEquals("1");
-            }
-            SECTION("-1") {
-                json.value(-1);
-                data.checkEquals("-1");
-            }
-            SECTION("12345") {
-                json.value(12345);
-                data.checkEquals("12345");
-            }
-            SECTION("-12345") {
-                json.value(-12345);
-                data.checkEquals("-12345");
-            }
-            SECTION("min") {
-                json.value((int)-2147483648); // INT_MIN
-                data.checkEquals("-2147483648");
-            }
-            SECTION("max") {
-                json.value((int)2147483647); // INT_MAX
-                data.checkEquals("2147483647");
-            }
-        }
-        SECTION("double") {
-            SECTION("0.0") {
-                json.value(0.0);
-                data.checkEquals("0");
-            }
-            SECTION("1.0") {
-                json.value(1.0);
-                data.checkEquals("1");
-            }
-            SECTION("-1.0") {
-                json.value(-1.0);
-                data.checkEquals("-1");
-            }
-            SECTION("0.5") {
-                json.value(0.5);
-                data.checkEquals("0.5");
-            }
-            SECTION("-0.5") {
-                json.value(-0.5);
-                data.checkEquals("-0.5");
-            }
-            SECTION("3.1416") {
-                json.value(3.1416);
-                data.checkEquals("3.1416");
-            }
-            SECTION("-3.1416") {
-                json.value(-3.1416);
-                data.checkEquals("-3.1416");
-            }
-            SECTION("min") {
-                json.value(2.22507e-308); // ~DBL_MIN
-                data.checkEquals("2.22507e-308");
-            }
-            SECTION("max") {
-                json.value(1.79769e+308); // ~DBL_MAX
-                data.checkEquals("1.79769e+308");
-            }
-        }
-    }
-
-    SECTION("string") {
-        SECTION("empty") {
-            json.value("");
-            data.checkEquals("\"\"");
-        }
-        SECTION("test string") {
-            json.value("abc");
-            data.checkEquals("\"abc\"");
-        }
-        SECTION("single character") {
-            json.value("a");
-            data.checkEquals("\"a\"");
-        }
-        SECTION("single escaped character") {
-            json.value("\"");
-            data.checkEquals("\"\\\"\"");
-        }
-        SECTION("named escaped characters") {
-            json.value("\"/\\\b\f\n\r\t");
-            data.checkEquals("\"\\\"/\\\\\\b\\f\\n\\r\\t\""); // '/' is never escaped
-        }
-        SECTION("control characters") {
-            json.value("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16"
-                    "\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f", 32);
-            data.checkEquals("\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e"
-                    "\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c"
-                    "\\u001d\\u001e\\u001f\"");
-        }
-    }
-
-    SECTION("array") {
-        SECTION("empty") {
-            json.beginArray();
-            json.endArray();
-            data.checkEquals("[]");
-        }
-        SECTION("single element") {
-            json.beginArray();
-            json.nullValue();
-            json.endArray();
-            data.checkEquals("[null]");
-        }
-        SECTION("primitive elements") {
-            json.beginArray();
-            json.nullValue().value(true).value(2).value(3.14).value("abcd");
-            json.endArray();
-            data.checkEquals("[null,true,2,3.14,\"abcd\"]");
-        }
-        SECTION("nested array") {
-            json.beginArray();
-            json.value(1.1);
-            json.beginArray();
-            json.value(2.1).value(2.2).value(2.3);
-            json.endArray();
-            json.value(1.3);
-            json.endArray();
-            data.checkEquals("[1.1,[2.1,2.2,2.3],1.3]");
-        }
-        SECTION("nested object") {
-            json.beginArray();
-            json.value(1.1);
-            json.beginObject();
-            json.name("2.1").value(2.1);
-            json.name("2.2").value(2.2);
-            json.name("2.3").value(2.3);
-            json.endObject();
-            json.value(1.3);
-            json.endArray();
-            data.checkEquals("[1.1,{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},1.3]");
-        }
-        SECTION("deeply nested array") {
-            json.beginArray();
-            for (int i = 0; i < 10; ++i) {
-                json.beginArray();
-            }
-            for (int i = 0; i < 10; ++i) {
-                json.endArray();
-            }
-            json.endArray();
-            data.checkEquals("[[[[[[[[[[[]]]]]]]]]]]");
-        }
-    }
-
-    SECTION("object") {
-        SECTION("empty") {
-            json.beginObject();
-            json.endObject();
-            data.checkEquals("{}");
-        }
-        SECTION("single element") {
-            json.beginObject();
-            json.name("null").nullValue();
-            json.endObject();
-            data.checkEquals("{\"null\":null}");
-        }
-        SECTION("primitive elements") {
-            json.beginObject();
-            json.name("null").nullValue();
-            json.name("bool").value(true);
-            json.name("int").value(2);
-            json.name("double").value(3.14);
-            json.name("string").value("abcd");
-            json.endObject();
-            data.checkEquals("{\"null\":null,\"bool\":true,\"int\":2,\"double\":3.14,\"string\":\"abcd\"}");
-        }
-        SECTION("nested object") {
-            json.beginObject();
-            json.name("1.1").value(1.1);
-            json.name("1.2").beginObject();
-            json.name("2.1").value(2.1);
-            json.name("2.2").value(2.2);
-            json.name("2.3").value(2.3);
-            json.endObject();
-            json.name("1.3").value(1.3);
-            json.endObject();
-            data.checkEquals("{\"1.1\":1.1,\"1.2\":{\"2.1\":2.1,\"2.2\":2.2,\"2.3\":2.3},\"1.3\":1.3}");
-        }
-        SECTION("nested array") {
-            json.beginObject();
-            json.name("1.1").value(1.1);
-            json.name("1.2").beginArray();
-            json.value(2.1).value(2.2).value(2.3);
-            json.endArray();
-            json.name("1.3").value(1.3);
-            json.endObject();
-            data.checkEquals("{\"1.1\":1.1,\"1.2\":[2.1,2.2,2.3],\"1.3\":1.3}");
-        }
-        SECTION("deeply nested object") {
-            json.beginObject();
-            for (int i = 1; i <= 10; ++i) {
-                json.name(std::to_string(i).c_str()).beginObject();
-            }
-            for (int i = 1; i <= 10; ++i) {
-                json.endObject();
-            }
-            json.endObject();
-            data.checkEquals("{\"1\":{\"2\":{\"3\":{\"4\":{\"5\":{\"6\":{\"7\":{\"8\":{\"9\":{\"10\":{}}}}}}}}}}}");
-        }
-        SECTION("escaped name characters") {
-            json.beginObject();
-            json.name("a\tb\n").value("a\tb\n");
-            json.endObject();
-            data.checkEquals("{\"a\\tb\\n\":\"a\\tb\\n\"}");
-        }
+        test::OutputStream strm;
+        JSONStreamWriter w(strm);
+        CHECK(w.stream() == &strm);
+        check(strm).isEmpty();
     }
 }
 
 TEST_CASE("JSONBufferWriter") {
-    // Primary functionality of this class is inherited from the abstract JSONWriter class, and is already
-    // checked in the JSONStreamWriter's test cases. Here we only check methods specific to JSONBufferWriter
     SECTION("construction") {
-        test::Buffer data; // Empty buffer
-        JSONBufferWriter json((char*)data, data.size());
-        CHECK(json.buffer() == (char*)data);
-        CHECK(json.bufferSize() == data.size());
-        CHECK(json.dataSize() == 0);
-        data.checkPadding();
+        test::Buffer buf; // Empty buffer
+        JSONBufferWriter w((char*)buf, buf.size());
+        CHECK(w.buffer() == (char*)buf);
+        CHECK(w.bufferSize() == buf.size());
+        CHECK(w.dataSize() == 0);
     }
 
     SECTION("exact buffer size") {
-        test::Buffer data(25); // 25 bytes
-        JSONBufferWriter json((char*)data, data.size());
-        json.beginArray().nullValue().value(true).value(2).value(3.14).value("abcd").endArray();
-        CHECK(json.dataSize() == 25);
-        data.checkEquals("[null,true,2,3.14,\"abcd\"]");
-        data.checkPadding();
+        test::Buffer buf(25); // 25 bytes
+        JSONBufferWriter w((char*)buf, buf.size());
+        w.beginArray().nullValue().value(true).value(2).value(3.14).value("abcd").endArray();
+        CHECK(w.dataSize() == 25);
+        check(buf).equals("[null,true,2,3.14,\"abcd\"]");
+        CHECK(buf.isPaddingValid());
     }
 
     SECTION("too small buffer") {
-        test::Buffer data;
-        JSONBufferWriter json((char*)data, data.size());
-        json.beginArray().nullValue().value(true).value(2).value(3.14).value("abcd").endArray();
-        CHECK(json.dataSize() == 25); // Size of the actual JSON data
-        data.checkPadding();
+        test::Buffer buf;
+        JSONBufferWriter w((char*)buf, buf.size());
+        w.beginArray().nullValue().value(true).value(2).value(3.14).value("abcd").endArray();
+        CHECK(w.dataSize() == 25); // Size of the actual JSON data
+        CHECK(buf.isPaddingValid());
     }
 }
