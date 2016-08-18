@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 
+// test::Allocator
 void* test::Allocator::malloc(size_t size) {
     const std::lock_guard<std::recursive_mutex> lock(mutex_);
     Buffer buf(size, padding_);
@@ -13,9 +14,9 @@ void* test::Allocator::malloc(size_t size) {
     return ptr;
 }
 
-void* test::Allocator::calloc(size_t count, size_t size) {
+void* test::Allocator::calloc(size_t n, size_t size) {
     const std::lock_guard<std::recursive_mutex> lock(mutex_);
-    size *= count;
+    size *= n;
     void* const ptr = malloc(size);
     if (ptr) {
         memset(ptr, 0, size);
@@ -64,7 +65,7 @@ void test::Allocator::free(void* ptr) {
         }
         FreedBuffer f;
         f.buffer = std::move(it->second);
-        f.data = f.buffer.toString(); // User data before free() has been called
+        f.data = (std::string)f.buffer; // User data before free() has been called
         alloc_.erase(it);
         const bool ok = f.buffer.isPaddingValid();
         free_.insert(std::make_pair(ptr, std::move(f)));
@@ -92,11 +93,17 @@ void test::Allocator::check() {
     }
     for (auto it = free_.begin(); it != free_.end(); ++it) {
         const FreedBuffer& f = it->second;
-        if (!f.buffer.isPaddingValid() || f.buffer.toString() != f.data) {
+        if (!f.buffer.isPaddingValid() || (std::string)f.buffer != f.data) {
             FAIL("test::Allocator: Memory corruption detected");
         }
     }
     if (failed_) {
         FAIL("test::Allocator: Memory check failed");
     }
+}
+
+// test::DefaultAllocator
+test::Allocator* test::DefaultAllocator::instance() {
+    static Allocator alloc;
+    return &alloc;
 }

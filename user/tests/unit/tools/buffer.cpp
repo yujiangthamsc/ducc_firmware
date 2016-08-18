@@ -1,7 +1,6 @@
 #include "buffer.h"
 
 #include "random.h"
-#include "catch.h"
 
 #include <cstring>
 
@@ -17,9 +16,4 @@ test::Buffer::Buffer(size_t size, size_t padding) :
 bool test::Buffer::isPaddingValid() const {
     return memcmp(d_.data(), p_.data(), p_.size()) == 0 &&
             memcmp(d_.data() + d_.size() - p_.size(), p_.data(), p_.size()) == 0;
-}
-
-test::Buffer& test::Buffer::checkPadding() {
-    CHECK(isPaddingValid());
-    return *this;
 }

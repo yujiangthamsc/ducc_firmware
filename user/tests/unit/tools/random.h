@@ -3,6 +3,7 @@
 
 #include <random>
 #include <string>
+#include <vector>
 
 namespace test {
 
@@ -14,7 +15,7 @@ std::string randomString(size_t minSize, size_t maxSize);
 std::string randomBytes(size_t size);
 std::string randomBytes(size_t minSize, size_t maxSize);
 
-std::default_random_engine& randomGenerator(); // Returns thread-local instance
+std::default_random_engine& randomGenerator();
 
 } // namespace test
 

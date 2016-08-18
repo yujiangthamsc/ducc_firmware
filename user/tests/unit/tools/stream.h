@@ -3,23 +3,25 @@
 
 #include "spark_wiring_print.h"
 
-#include "string.h"
+#include "check.h"
+
+#include <string>
 
 namespace test {
 
-class StringOutputStream: public Print {
+class OutputStream:
+        public Print,
+        public Checkable<std::string, OutputStream> {
 public:
-    StringOutputStream() = default;
+    OutputStream() = default;
 
-    const StringOutputStream& checkEquals(const std::string &str) const;
-    const StringOutputStream& checkStartsWith(const std::string &str) const;
-    const StringOutputStream& checkEndsWith(const std::string &str) const;
-    const StringOutputStream& checkEmpty() const;
+    const char* data() const;
+    size_t size() const;
 
-    const std::string& toString() const;
+    virtual size_t write(const uint8_t *data, size_t size) override; // Print
+    virtual size_t write(uint8_t byte) override; // Print
 
-    virtual size_t write(const uint8_t *data, size_t size) override;
-    virtual size_t write(uint8_t byte) override;
+    explicit operator std::string() const; // Required by Checkable mixin
 
 private:
     std::string s_;
@@ -27,38 +29,26 @@ private:
 
 } // namespace test
 
-// test::StringOutputStream
-inline const test::StringOutputStream& test::StringOutputStream::checkEquals(const std::string &str) const {
-    test::checkEquals(s_, str);
-    return *this;
+// test::OutputStream
+inline const char* test::OutputStream::data() const {
+    return s_.c_str();
 }
 
-inline const test::StringOutputStream& test::StringOutputStream::checkStartsWith(const std::string &str) const {
-    test::checkStartsWith(s_, str);
-    return *this;
+inline size_t test::OutputStream::size() const {
+    return s_.size();
 }
 
-inline const test::StringOutputStream& test::StringOutputStream::checkEndsWith(const std::string &str) const {
-    test::checkEndsWith(s_, str);
-    return *this;
-}
-
-inline const test::StringOutputStream& test::StringOutputStream::checkEmpty() const {
-    test::checkEmpty(s_);
-    return *this;
-}
-
-inline const std::string& test::StringOutputStream::toString() const {
-    return s_;
-}
-
-inline size_t test::StringOutputStream::write(const uint8_t *data, size_t size) {
+inline size_t test::OutputStream::write(const uint8_t *data, size_t size) {
     s_.append((const char*)data, size);
     return size;
 }
 
-inline size_t test::StringOutputStream::write(uint8_t byte) {
+inline size_t test::OutputStream::write(uint8_t byte) {
     return write(&byte, 1);
+}
+
+inline test::OutputStream::operator std::string() const {
+    return s_;
 }
 
 #endif // TEST_TOOLS_STREAM_H

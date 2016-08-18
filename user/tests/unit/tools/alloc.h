@@ -13,13 +13,13 @@ public:
     explicit Allocator(size_t padding = Buffer::DEFAULT_PADDING);
 
     void* malloc(size_t size);
-    void* calloc(size_t count, size_t size);
+    void* calloc(size_t n, size_t size);
     void* realloc(void* ptr, size_t size);
     void free(void* ptr);
 
-    void reset();
-
     void check();
+
+    void reset();
 
     // This class is non-copyable
     Allocator(const Allocator&) = delete;
@@ -39,12 +39,53 @@ private:
     std::recursive_mutex mutex_;
 };
 
+class DefaultAllocator {
+public:
+    static void* malloc(size_t size);
+    static void* calloc(size_t n, size_t size);
+    static void* realloc(void* ptr, size_t size);
+    static void free(void* ptr);
+
+    static void check();
+
+    static void reset();
+
+private:
+    static Allocator* instance();
+};
+
 } // namespace test
 
+// test::Allocator
 inline test::Allocator::Allocator(size_t padding) :
         padding_(padding),
         failed_(false) {
     reset();
+}
+
+// test::DefaultAllocator
+inline void* test::DefaultAllocator::malloc(size_t size) {
+    return instance()->malloc(size);
+}
+
+inline void* test::DefaultAllocator::calloc(size_t n, size_t size) {
+    return instance()->calloc(n, size);
+}
+
+inline void* test::DefaultAllocator::realloc(void* ptr, size_t size) {
+    return instance()->realloc(ptr, size);
+}
+
+inline void test::DefaultAllocator::free(void* ptr) {
+    instance()->free(ptr);
+}
+
+inline void test::DefaultAllocator::check() {
+    instance()->check();
+}
+
+inline void test::DefaultAllocator::reset() {
+    instance()->reset();
 }
 
 #endif // TEST_TOOLS_ALLOC_H

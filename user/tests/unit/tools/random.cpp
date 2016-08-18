@@ -45,6 +45,6 @@ std::string test::randomBytes(size_t size) {
 }
 
 std::default_random_engine& test::randomGenerator() {
-    static thread_local std::default_random_engine gen(seed());
+    static /* thread_local */ std::default_random_engine gen(seed());
     return gen;
 }
