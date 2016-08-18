@@ -42,26 +42,10 @@ const jsmntok_t* skipToken(const jsmntok_t *t) {
 
 template<typename T>
 T numFromToken(const jsmntok_t *t, const char *json, bool *ok = nullptr) {
+    // SPARK_ASSERT(t->type == JSMN_PRIMITIVE);
     const char* const s = json + t->start;
     char *end = nullptr;
-    T val = strtol(s, &end, 10);
-    if (!end || *end != '\0') {
-        val = strtod(s, &end); // Trying to parse as double
-        if (!end || *end != '\0') {
-            return T(); // Error
-        }
-    }
-    if (ok) {
-        *ok = true;
-    }
-    return val;
-}
-
-template<>
-double numFromToken<double>(const jsmntok_t *t, const char *json, bool *ok) {
-    const char* const s = json + t->start;
-    char *end = nullptr;
-    const double val = strtod(s, &end);
+    const T val = strtod(s, &end);
     if (!end || *end != '\0') {
         return 0.0; // Error
     }
@@ -72,6 +56,7 @@ double numFromToken<double>(const jsmntok_t *t, const char *json, bool *ok) {
 }
 
 inline bool boolFromToken(const jsmntok_t *t, const char *json) {
+    // SPARK_ASSERT(t->type == JSMN_PRIMITIVE);
     const char* const s = json + t->start;
     return *s == 't'; // Literal names are always in lower case
 }
@@ -247,7 +232,7 @@ spark::JSONValue spark::JSONValue::parseCopy(const char *json, size_t size) {
     if (!d->json) {
         return JSONValue();
     }
-    memcpy(d->json, json, size);
+    memcpy(d->json, json, size); // TODO: Copy only token data
     d->copy = true;
     if (!stringize(d->tokens, tokenCount, d->json)) {
         return JSONValue();

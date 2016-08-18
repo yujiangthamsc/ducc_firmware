@@ -28,13 +28,13 @@
 #include "spark_wiring_print.h"
 #include "spark_wiring_string.h"
 #include "spark_wiring_thread.h"
-#include "spark_wiring_array.h"
+#include "spark_wiring_vector.h"
 
 namespace spark {
 
 class LogCategoryFilter;
 
-typedef Array<LogCategoryFilter> LogCategoryFilters;
+typedef Vector<LogCategoryFilter> LogCategoryFilters;
 
 namespace detail {
 
@@ -55,11 +55,11 @@ public:
 private:
     struct Node;
 
-    Array<String> cats_; // Category filter strings
-    Array<Node> nodes_; // Lookup table
+    Vector<String> cats_; // Category filter strings
+    Vector<Node> nodes_; // Lookup table
     LogLevel level_; // Default level
 
-    static int nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found);
+    static int nodeIndex(const Vector<Node> &nodes, const char *name, size_t size, bool &found);
 };
 
 } // namespace spark::detail
@@ -567,8 +567,8 @@ public:
 private:
     struct FactoryHandler;
 
-    Array<LogHandler*> activeHandlers_;
-    Array<FactoryHandler> factoryHandlers_;
+    Vector<LogHandler*> activeHandlers_;
+    Vector<FactoryHandler> factoryHandlers_;
     LogHandlerFactory *handlerFactory_;
     OutputStreamFactory *streamFactory_;
 
@@ -581,6 +581,9 @@ private:
 
     void destroyFactoryHandler(const char *id);
     void destroyFactoryHandlers();
+
+    static void setSystemCallbacks();
+    static void resetSystemCallbacks();
 
     // System callbacks
     static void logMessage(const char *msg, int level, const char *category, const LogAttributes *attr, void *reserved);
@@ -598,8 +601,6 @@ private:
     \param fmt Data format.
 
     \return `false` in case of error.
-
-    \note
 */
 bool logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt);
 

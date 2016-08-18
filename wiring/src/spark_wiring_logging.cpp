@@ -115,7 +115,7 @@ private:
         LogLevel level;
 
         Request() :
-                level(LOG_LEVEL_NONE) {
+                level(LOG_LEVEL_INFO) { // Default level
         }
     };
 
@@ -152,7 +152,7 @@ private:
         while (it.next()) {
             if (it.name() == "type") { // Object type
                 object->type = it.value().toString();
-            } else if (it.name() == "params") { // Additional parameters
+            } else if (it.name() == "param") { // Additional parameters
                 object->params = it.value();
             }
         }
@@ -166,7 +166,7 @@ private:
         }
         while (it.next()) {
             JSONString cat;
-            LogLevel level = LOG_LEVEL_NONE;
+            LogLevel level = LOG_LEVEL_INFO; // Default level
             JSONObjectIterator it2(it.value());
             while (it2.next()) {
                 if (it2.name() == "cat") { // Category
@@ -176,6 +176,9 @@ private:
                         return false;
                     }
                 }
+            }
+            if (cat.isEmpty()) {
+                return false;
             }
             filters->append(LogCategoryFilter((String)cat, level));
         }
@@ -204,7 +207,7 @@ private:
             }
         }
         if (i == n) {
-            return false; // Unknown level name
+            return false; // Invalid level name
         }
         *level = levels[i].level;
         return true;
@@ -223,11 +226,18 @@ private:
     }
 
     static bool addHandler(Request &req, JSONWriter&) {
+        if (req.id.isEmpty() || req.handler.type.isEmpty()) {
+            return false;
+        }
+        const char* const strmType = !req.stream.type.isEmpty() ? (const char*)req.stream.type : nullptr;
         return logManager()->addFactoryHandler((const char*)req.id, (const char*)req.handler.type, req.level, req.filters,
-                req.handler.params, (const char*)req.stream.type, req.stream.params);
+                req.handler.params, strmType, req.stream.params);
     }
 
     static bool removeHandler(Request &req, JSONWriter&) {
+        if (req.id.isEmpty()) {
+            return false;
+        }
         logManager()->removeFactoryHandler((const char*)req.id);
         return true;
     }
@@ -347,7 +357,7 @@ struct spark::detail::LogFilter::Node {
     const char *name; // Subcategory name
     uint16_t size; // Name length
     int16_t level; // Logging level (-1 if not specified for this node)
-    Array<Node> nodes; // Children nodes
+    Vector<Node> nodes; // Children nodes
 
     Node(const char *name, uint16_t size) :
             name(name),
@@ -363,7 +373,7 @@ spark::detail::LogFilter::LogFilter(LogLevel level) :
 spark::detail::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) :
         level_(LOG_LEVEL_NONE) { // Fallback level that will be used in case of construction errors
     // Store category names
-    Array<String> cats;
+    Vector<String> cats;
     if (!cats.reserve(filters.size())) {
         return;
     }
@@ -371,13 +381,13 @@ spark::detail::LogFilter::LogFilter(LogLevel level, LogCategoryFilters filters) 
         cats.append(std::move(filter.cat_));
     }
     // Process category filters
-    Array<Node> nodes;
+    Vector<Node> nodes;
     for (int i = 0; i < cats.size(); ++i) {
         const char *category = cats.at(i).c_str();
         if (!category) {
             continue; // Invalid usage or string allocation error
         }
-        Array<Node> *pNodes = &nodes; // Root nodes
+        Vector<Node> *pNodes = &nodes; // Root nodes
         const char *name = nullptr; // Subcategory name
         size_t size = 0; // Name length
         while ((name = nextSubcategoryName(category, size))) {
@@ -405,7 +415,7 @@ spark::detail::LogFilter::~LogFilter() {
 LogLevel spark::detail::LogFilter::level(const char *category) const {
     LogLevel level = level_; // Default level
     if (!nodes_.isEmpty() && category) {
-        const Array<Node> *pNodes = &nodes_; // Root nodes
+        const Vector<Node> *pNodes = &nodes_; // Root nodes
         const char *name = nullptr; // Subcategory name
         size_t size = 0; // Name length
         while ((name = nextSubcategoryName(category, size))) {
@@ -424,7 +434,7 @@ LogLevel spark::detail::LogFilter::level(const char *category) const {
     return level;
 }
 
-int spark::detail::LogFilter::nodeIndex(const Array<Node> &nodes, const char *name, size_t size, bool &found) {
+int spark::detail::LogFilter::nodeIndex(const Vector<Node> &nodes, const char *name, size_t size, bool &found) {
     // Using binary search to find existent node or suitable position for new node
     return std::distance(nodes.begin(), std::lower_bound(nodes.begin(), nodes.end(), std::make_pair(name, size),
             [&found](const Node &node, const std::pair<const char*, size_t> &value) {
@@ -506,14 +516,14 @@ void spark::JSONStreamLogHandler::logMessage(const char *msg, LogLevel level, co
     writer_.beginObject();
     // Level
     const char *s = levelName(level);
-    writer_.name("level", 5).value(s);
+    writer_.name("lvl", 3).value(s);
     // Message
     if (msg) {
-        writer_.name("message", 7).value(msg);
+        writer_.name("msg", 3).value(msg);
     }
     // Category
     if (category) {
-        writer_.name("category", 8).value(category);
+        writer_.name("cat", 3).value(category);
     }
     // File name
     if (attr.has_file) {
@@ -528,7 +538,7 @@ void spark::JSONStreamLogHandler::logMessage(const char *msg, LogLevel level, co
     if (attr.has_function) {
         size_t n = 0;
         s = extractFuncName(attr.function, &n); // Strip argument and return types
-        writer_.name("function", 8).value(s, n);
+        writer_.name("func", 4).value(s, n);
     }
     // Timestamp
     if (attr.has_time) {
@@ -540,7 +550,7 @@ void spark::JSONStreamLogHandler::logMessage(const char *msg, LogLevel level, co
     }
     // Details
     if (attr.has_details) {
-        writer_.name("details", 7).value(attr.details);
+        writer_.name("detail", 6).value(attr.details);
     }
     writer_.endObject();
     writer_.stream()->write("\r\n");
@@ -638,9 +648,9 @@ spark::LogManager::LogManager() :
 }
 
 spark::LogManager::~LogManager() {
-    log_set_callbacks(nullptr, nullptr, nullptr, nullptr); // Reset system callbacks
+    resetSystemCallbacks();
     WITH_LOCK(mutex_) {
-        destroyFactoryHandlers(); // Destroying all dynamically allocated handlers
+         destroyFactoryHandlers();
     }
 }
 
@@ -650,7 +660,7 @@ bool spark::LogManager::addHandler(LogHandler *handler) {
             return false;
         }
         if (activeHandlers_.size() == 1) {
-            log_set_callbacks(logMessage, logWrite, logEnabled, nullptr); // Set system callbacks
+            setSystemCallbacks();
         }
     }
     return true;
@@ -659,7 +669,7 @@ bool spark::LogManager::addHandler(LogHandler *handler) {
 void spark::LogManager::removeHandler(LogHandler *handler) {
     WITH_LOCK(mutex_) {
         if (activeHandlers_.removeOne(handler) && activeHandlers_.isEmpty()) {
-            log_set_callbacks(nullptr, nullptr, nullptr, nullptr); // Reset system callbacks
+            resetSystemCallbacks();
         }
     }
 }
@@ -697,8 +707,11 @@ bool spark::LogManager::addFactoryHandler(const char *id, const char *handlerTyp
             return false;
         }
         if (!activeHandlers_.append(h.handler)) {
-            factoryHandlers_.takeLast(); // Revert succeeded factoryHandlers_.append()
+            factoryHandlers_.takeLast(); // Revert factoryHandlers_.append()
             return false;
+        }
+        if (activeHandlers_.size() == 1) {
+            setSystemCallbacks();
         }
         handler.release(); // Release scope guard pointers
         stream.release();
@@ -738,16 +751,24 @@ void spark::LogManager::setStreamFactory(OutputStreamFactory *factory) {
     }
 }
 
+spark::LogManager* spark::LogManager::instance() {
+    static LogManager mgr;
+    return &mgr;
+}
+
 void spark::LogManager::destroyFactoryHandler(const char *id) {
     for (int i = 0; i < factoryHandlers_.size(); ++i) {
         const FactoryHandler &h = factoryHandlers_.at(i);
         if (h.id == id) {
             activeHandlers_.removeOne(h.handler);
+            if (activeHandlers_.isEmpty()) {
+                resetSystemCallbacks();
+            }
             handlerFactory_->destroyHandler(h.handler);
             if (h.stream) {
                 streamFactory_->destroyStream(h.stream);
             }
-            factoryHandlers_.remove(i);
+            factoryHandlers_.removeAt(i);
             break;
         }
     }
@@ -764,9 +785,12 @@ void spark::LogManager::destroyFactoryHandlers() {
     factoryHandlers_.clear();
 }
 
-spark::LogManager* spark::LogManager::instance() {
-    static LogManager mgr;
-    return &mgr;
+void spark::LogManager::setSystemCallbacks() {
+    log_set_callbacks(logMessage, logWrite, logEnabled, nullptr);
+}
+
+void spark::LogManager::resetSystemCallbacks() {
+    log_set_callbacks(nullptr, nullptr, nullptr, nullptr);
 }
 
 void spark::LogManager::logMessage(const char *msg, int level, const char *category, const LogAttributes *attr, void *reserved) {
