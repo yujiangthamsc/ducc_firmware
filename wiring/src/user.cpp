@@ -28,6 +28,7 @@
 #include "spark_wiring_usbserial.h"
 #include "spark_wiring_usartserial.h"
 #include "spark_wiring_watchdog.h"
+#include "spark_wiring_logging.h"
 #include "rng_hal.h"
 
 
@@ -162,6 +163,24 @@ bool __backup_ram_was_valid() { return false; }
 
 #endif
 
+#include "system_control.h"
+
+#ifdef USB_VENDOR_REQUEST_ENABLE
+
+static bool usb_req_app_handler(USBRequest* req, void* reserved) {
+    switch (req->type) {
+    case USB_REQUEST_SETUP_LOGGING:
+        if (!spark::logProcessRequest(req->data, req->reply_size, req->request_size, &req->reply_size, (DataFormat)req->format)) {
+            return false;
+        }
+        system_set_usb_request_reply_ready(req, nullptr);
+        return true;
+    default:
+        return false; // Unsupported request
+    }
+}
+
+#endif // USB_VENDOR_REQUEST_ENABLE
 
 void module_user_init_hook()
 {
@@ -182,5 +201,9 @@ void module_user_init_hook()
     		uint32_t seed = HAL_RNG_GetRandomNumber();
     		random_seed_from_cloud(seed);
     }
+#endif
+
+#ifdef USB_VENDOR_REQUEST_ENABLE
+    system_set_usb_request_app_handler(usb_req_app_handler, nullptr);
 #endif
 }
