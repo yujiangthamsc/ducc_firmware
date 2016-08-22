@@ -27,10 +27,9 @@
 #include <future>
 #include "channel.h"
 #include "concurrent_hal.h"
-#include "service_debug.h"
 
 /**
- * Configuration data for an active object.
+ * Configuratino data for an active object.
  */
 struct ActiveObjectConfiguration
 {
@@ -61,22 +60,12 @@ struct ActiveObjectConfiguration
      */
     uint16_t queue_size;
 
-    /**
-     * Maximum number of pooled messages that can be queued from an ISR.
-     */
-    uint16_t isr_task_pool_size;
-
 public:
-    ActiveObjectConfiguration(background_task_t task, unsigned take_wait_, unsigned put_wait_, uint16_t queue_size_,
-            uint16_t isr_task_pool_size_ = 0, size_t stack_size_ = 0) :
-            background_task(task),
-            stack_size(stack_size_),
-            take_wait(take_wait_),
-            put_wait(put_wait_),
-            queue_size(queue_size_),
-            isr_task_pool_size(isr_task_pool_size_)
-    {
-    }
+    ActiveObjectConfiguration(background_task_t task, unsigned take_wait_, unsigned put_wait_,
+    			uint16_t queue_size_,
+            size_t stack_size_ =0) : background_task(task), stack_size(stack_size_),
+            take_wait(take_wait_), put_wait(put_wait_), queue_size(queue_size_) {}
+
 };
 
 /**
@@ -240,55 +229,6 @@ public:
     }
 };
 
-/**
- * Simple task that can be scheduled from an ISR.
- */
-class ISRAsyncTask;
-
-/**
- * Pool manager for ISRAsyncTask objects.
- */
-class ISRAsyncTaskPool
-{
-public:
-    explicit ISRAsyncTaskPool(size_t size);
-    ~ISRAsyncTaskPool();
-
-    ISRAsyncTask* take();
-    void release(ISRAsyncTask* task);
-
-private:
-    ISRAsyncTask* tasks;
-    ISRAsyncTask* availTask;
-};
-
-class ISRAsyncTask: public Message
-{
-public:
-    typedef void(*HandlerFunc)(void*);
-
-    void reset(HandlerFunc func, void* data = nullptr)
-    {
-        SPARK_ASSERT(func);
-        this->func = func;
-        this->data = data;
-    }
-
-    virtual void operator()() override
-    {
-        func(data);
-        pool->release(this);
-    }
-
-private:
-    ISRAsyncTaskPool* pool;
-    ISRAsyncTask* next;
-    HandlerFunc func;
-    void* data;
-
-    friend class ISRAsyncTaskPool;
-};
-
 
 class ActiveObjectBase
 {
@@ -401,6 +341,7 @@ protected:
         return true;
     }
 
+
 public:
 
     ActiveObjectChannel(ActiveObjectConfiguration& config) : ActiveObjectBase(config) {}
@@ -413,12 +354,12 @@ public:
         _channel = cpp::channel<Item*, queue_size>();
         start_thread();
     }
+
 };
 
 class ActiveObjectQueue : public ActiveObjectBase
 {
     os_queue_t  queue;
-    ISRAsyncTaskPool isrTaskPool;
 
 protected:
 
@@ -439,19 +380,12 @@ protected:
 
 public:
 
-    ActiveObjectQueue(const ActiveObjectConfiguration& config) :
-        ActiveObjectBase(config),
-        queue(NULL),
-        isrTaskPool(config.isr_task_pool_size)
-    {
-    }
+    ActiveObjectQueue(const ActiveObjectConfiguration& config) : ActiveObjectBase(config), queue(NULL) {}
 
     void start()
     {
         createQueue();
     }
-
-    bool invokeAsyncFromISR(ISRAsyncTask::HandlerFunc func, void* data);
 };
 
 
@@ -501,4 +435,31 @@ public:
 
 
 
-#endif
+#endif // PLATFORM_THREADING
+
+/**
+ * This class implements a queue of asynchronous calls that can be scheduled from an ISR and then
+ * invoked from an event loop running in a regular thread.
+ */
+class ISRTaskQueue {
+public:
+    typedef void(*TaskFunc)(void*);
+
+    explicit ISRTaskQueue(size_t size);
+    ~ISRTaskQueue();
+
+    bool enqueue(TaskFunc func, void* data = nullptr); // Called from an ISR
+    bool process(); // Called from the primary thread
+
+private:
+    struct Task {
+        TaskFunc func;
+        void* data;
+        Task* next;
+    };
+
+    Task* tasks_;
+    Task* availTask_; // Task pool
+    Task* firstTask_; // Task queue
+    Task* lastTask_;
+};

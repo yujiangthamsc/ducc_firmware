@@ -17,65 +17,15 @@
  ******************************************************************************
  */
 
-#if PLATFORM_THREADING
-
-#include <string.h>
-
 #include "active_object.h"
-#include "concurrent_hal.h"
-#include "timer_hal.h"
 
 #include "spark_wiring_interrupts.h"
 
-ISRAsyncTaskPool::ISRAsyncTaskPool(size_t size) :
-    tasks(nullptr),
-    availTask(nullptr)
-{
-    if (size)
-    {
-        tasks = (ISRAsyncTask*)malloc(size * sizeof(ISRAsyncTask));
-        if (tasks) {
-            for (size_t i = 0; i < size; ++i)
-            {
-                ISRAsyncTask* task = tasks + i;
-                task->pool = this;
-                if (i != size - 1)
-                {
-                    task->next = task + 1;
-                }
-                else
-                {
-                    task->next = nullptr;
-                }
-            }
-        }
-        availTask = tasks;
-    }
-}
+#if PLATFORM_THREADING
 
-ISRAsyncTaskPool::~ISRAsyncTaskPool()
-{
-    free(tasks);
-}
-
-ISRAsyncTask* ISRAsyncTaskPool::take()
-{
-    const AtomicSection disableIrq; // Disable interrupts to prevent preemption of this ISR
-    ISRAsyncTask* task = availTask;
-    if (task)
-    {
-        availTask = task->next;
-    }
-    return task;
-}
-
-void ISRAsyncTaskPool::release(ISRAsyncTask* task)
-{
-    const AtomicSection disableIrq;
-    task->next = availTask;
-    availTask = task;
-}
-
+#include <string.h>
+#include "concurrent_hal.h"
+#include "timer_hal.h"
 
 void ActiveObjectBase::start_thread()
 {
@@ -127,22 +77,79 @@ void ActiveObjectBase::run_active_object(ActiveObjectBase* object)
     object->run();
 }
 
-bool ActiveObjectQueue::invokeAsyncFromISR(ISRAsyncTask::HandlerFunc func, void* data)
-{
-    SPARK_ASSERT(HAL_IsISR());
-    ISRAsyncTask* task = isrTaskPool.take();
-    if (!task)
-    {
-        return false;
+#endif // PLATFORM_THREADING
+
+ISRTaskQueue::ISRTaskQueue(size_t size) :
+        tasks_(nullptr),
+        availTask_(nullptr),
+        firstTask_(nullptr),
+        lastTask_(nullptr) {
+    if (size) {
+        // Initialize pool of task objects
+        tasks_ = new(std::nothrow) Task[size];
+        if (tasks_) {
+            for (size_t i = 0; i < size; ++i) {
+                Task* t = tasks_ + i;
+                if (i != size - 1) {
+                    t->next = t + 1;
+                } else {
+                    t->next = nullptr;
+                }
+            }
+        }
+        availTask_ = tasks_;
     }
-    task->reset(func, data);
-    Item item = task;
-    if (!put(item))
-    {
-        isrTaskPool.release(task);
-        return false;
+}
+
+ISRTaskQueue::~ISRTaskQueue() {
+    delete[] tasks_;
+}
+
+bool ISRTaskQueue::enqueue(TaskFunc func, void* data) {
+    SPARK_ASSERT(func && HAL_IsISR());
+    ATOMIC_BLOCK() { // Prevent preemption of the current ISR
+        // Take task object from the pool
+        Task* t = availTask_;
+        if (!t) {
+            return false;
+        }
+        availTask_ = t->next;
+        // Initialize task object
+        t->func = func;
+        t->data = data;
+        t->next = nullptr;
+        // Add task object to the queue
+        if (lastTask_) {
+            lastTask_->next = t;
+        } else { // The queue is empty
+            firstTask_ = t;
+        }
+        lastTask_ = t;
     }
     return true;
 }
 
-#endif
+bool ISRTaskQueue::process() {
+    SPARK_ASSERT(!HAL_IsISR());
+    TaskFunc func = nullptr;
+    void* data = nullptr;
+    ATOMIC_BLOCK() {
+        // Take task object from the queue
+        Task *t = firstTask_;
+        if (!t) {
+            return false;
+        }
+        firstTask_ = firstTask_->next;
+        if (!firstTask_) {
+            lastTask_ = nullptr;
+        }
+        func = t->func;
+        data = t->data;
+        // Return task object to the pool
+        t->next = availTask_;
+        availTask_ = t;
+    }
+    // Invoke task function
+    func(data);
+    return true;
+}

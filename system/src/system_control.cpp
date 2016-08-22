@@ -25,7 +25,7 @@
 
 #include "system_control.h"
 
-#include "system_threading.h"
+#include "system_task.h"
 #include "deviceid_hal.h"
 #include "spark_wiring.h"
 
@@ -236,7 +236,7 @@ uint8_t SystemControlInterface::handleAsyncVendorRequest(HAL_USB_SetupRequest* r
     }
   }
   // Schedule request for further processing
-  if (!SystemThread.invokeAsyncFromISR(asyncVendorRequestCallback, &usbReq_.req)) {
+  if (!SystemISRTaskQueue.enqueue(asyncVendorRequestCallback, &usbReq_.req)) {
     return 1;
   }
   usbReq_.req.type = (USBRequestType)req->wIndex;
