@@ -25,7 +25,7 @@
 #define Wiring_WiFi 1
 #define Wiring_IPv6 0
 #define Wiring_SPI1 1
-#define Wiring_DynamicLoggingConfig 1 // for testing purposes
+#define Wiring_DynamicLogConfig 1 // for testing purposes
 #endif
 
 #if PLATFORM_ID==4      // photon dev
@@ -49,7 +49,7 @@
 #define Wiring_USBSerial1 1
 #define Wiring_Mouse 1
 #define Wiring_Keyboard 1
-#define Wiring_DynamicLoggingConfig 1
+#define Wiring_DynamicLogConfig 1
 #endif
 
 #if PLATFORM_ID==7
@@ -70,7 +70,7 @@
 #define Wiring_USBSerial1 1
 #define Wiring_Mouse 1
 #define Wiring_Keyboard 1
-#define Wiring_DynamicLoggingConfig 1
+#define Wiring_DynamicLogConfig 1
 #endif
 
 #if PLATFORM_ID==9      // ethernet
@@ -92,7 +92,7 @@
 #define Wiring_USBSerial1 1
 #define Wiring_Mouse 1
 #define Wiring_Keyboard 1
-#define Wiring_DynamicLoggingConfig 1
+#define Wiring_DynamicLogConfig 1
 #endif
 
 #ifndef Wiring_SPI1
@@ -143,8 +143,8 @@
 #define Wiring_USBSerial1 0
 #endif
 
-#ifndef Wiring_DynamicLoggingConfig
-#define Wiring_DynamicLoggingConfig 0
+#ifndef Wiring_DynamicLogConfig
+#define Wiring_DynamicLogConfig 0
 #endif
 
 #endif	/* SPARK_WIRING_PLATFORM_H */

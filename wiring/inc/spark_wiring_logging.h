@@ -30,7 +30,7 @@
 #include "spark_wiring_vector.h"
 #include "spark_wiring_platform.h"
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
 #include "system_control.h"
 #endif
 
@@ -218,18 +218,13 @@ private:
     Print *stream_;
 };
 
-class JSONStreamLogHandler: public LogHandler {
+class JSONStreamLogHandler: public StreamLogHandler {
 public:
-    explicit JSONStreamLogHandler(Print &stream, LogLevel level = LOG_LEVEL_INFO, LogCategoryFilters filters = {});
-
-    Print* stream() const;
+    using StreamLogHandler::StreamLogHandler;
 
 protected:
     virtual void logMessage(const char *msg, LogLevel level, const char *category, const LogAttributes &attr) override;
     virtual void write(const char *data, size_t size) override;
-
-private:
-    JSONStreamWriter writer_;
 };
 
 class AttributedLogger;
@@ -449,7 +444,7 @@ private:
     friend class Logger;
 };
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
 
 // NOTE: This is an experimental API and is subject to change
 class LogHandlerFactory {
@@ -489,7 +484,7 @@ private:
     static void getParams(const JSONValue &params, int *baudRate);
 };
 
-#endif // Wiring_DynamicLoggingConfig
+#endif // Wiring_DynamicLogConfig
 
 /*!
     \brief Log manager.
@@ -519,7 +514,7 @@ public:
     */
     void removeHandler(LogHandler *handler);
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
 
     /*!
         \brief Creates and registers a factory log handler.
@@ -566,7 +561,7 @@ public:
     */
     void setStreamFactory(OutputStreamFactory *factory);
 
-#endif // Wiring_DynamicLoggingConfig
+#endif // Wiring_DynamicLogConfig
 
     /*!
         \brief Returns log manager's instance.
@@ -582,7 +577,7 @@ private:
 
     Vector<LogHandler*> activeHandlers_;
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
     Vector<FactoryHandler> factoryHandlers_;
     LogHandlerFactory *handlerFactory_;
     OutputStreamFactory *streamFactory_;
@@ -595,7 +590,7 @@ private:
     // This class can be instantiated only via instance() method
     LogManager();
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
     void destroyFactoryHandler(const char *id);
     void destroyFactoryHandlers();
 #endif
@@ -609,7 +604,7 @@ private:
     static int logEnabled(int level, const char *category, void *reserved);
 };
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
 
 /*!
     \brief Performs processing of a configuration request.
@@ -622,9 +617,9 @@ private:
 
     \return `false` in case of error.
 */
-bool logProcessRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt);
+bool logProcessConfigRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt);
 
-#endif // Wiring_DynamicLoggingConfig
+#endif // Wiring_DynamicLogConfig
 
 /*!
     \brief Default logger instance.
@@ -727,17 +722,8 @@ inline void spark::StreamLogHandler::printf(const char *fmt, ArgsT... args) {
 }
 
 // spark::JSONStreamLogHandler
-inline spark::JSONStreamLogHandler::JSONStreamLogHandler(Print &stream, LogLevel level, LogCategoryFilters filters) :
-        LogHandler(level, filters),
-        writer_(stream) {
-}
-
-inline Print* spark::JSONStreamLogHandler::stream() const {
-    return writer_.stream();
-}
-
 inline void spark::JSONStreamLogHandler::write(const char *data, size_t size) {
-    // Direct logging is not supported
+    // This handler doesn't support direct logging
 }
 
 // spark::Logger
@@ -949,7 +935,7 @@ inline void spark::AttributedLogger::log(LogLevel level, const char *fmt, va_lis
     log_message_v(level, name_, &attr_, nullptr, fmt, args);
 }
 
-#if Wiring_DynamicLoggingConfig
+#if Wiring_DynamicLogConfig
 
 // spark::LogHandlerFactory
 inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
@@ -961,6 +947,6 @@ inline void spark::OutputStreamFactory::destroyStream(Print *stream) {
     delete stream;
 }
 
-#endif // Wiring_DynamicLoggingConfig
+#endif // Wiring_DynamicLogConfig
 
 #endif // SPARK_WIRING_LOGGING_H
