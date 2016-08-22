@@ -425,20 +425,20 @@ private:
     std::map<std::string, NamedOutputStream*> streams_;
 };
 
-// Convenience wrapper for spark::logProcessRequest()
-bool processRequest(const std::string &req, std::string *rep = nullptr, DataFormat fmt = DATA_FORMAT_JSON) {
+// Convenience wrapper for spark::logProcessConfigRequest()
+bool processConfigRequest(const std::string &req, std::string *rep = nullptr, DataFormat fmt = DATA_FORMAT_JSON) {
     char buf[1024];
     if (req.size() > sizeof(buf)) {
-        FAIL("processRequest(): Too large request");
+        FAIL("processConfigRequest(): Too large request");
     }
     memcpy(buf, req.data(), req.size());
     size_t repSize = 0;
-    if (!logProcessRequest(buf, sizeof(buf), req.size(), &repSize, fmt)) {
+    if (!logProcessConfigRequest(buf, sizeof(buf), req.size(), &repSize, fmt)) {
         return false;
     }
     if (rep) {
         if (repSize > sizeof(buf)) {
-            FAIL("processRequest(): Too large reply");
+            FAIL("processConfigRequest(): Too large reply");
         }
         *rep = std::string(buf, repSize);
     }
@@ -967,7 +967,7 @@ TEST_CASE("Message formatting") {
         test::OutputStream stream;
         ScopedLogHandler<StreamLogHandler> handler(stream);
         LOG_ATTR(INFO, (code = -1, details = "details"), "\"message\"");
-        // timestamp [category] file:line, function(): level: message
+        // timestamp [category] file:line, function(): level: message [code = ..., details = ...]
         check(stream).matches("\\d{10} \\[(.+)\\] (.+):\\d+, .+\\(\\): (.+): (.+) \\[code = (.+), details = (.+)\\]\r\n")
                 .at(0).equals(LOG_THIS_CATEGORY())
                 .at(1).equals(SOURCE_FILE)
@@ -981,8 +981,8 @@ TEST_CASE("Message formatting") {
         test::OutputStream stream;
         ScopedLogHandler<JSONStreamLogHandler> handler(stream);
         LOG_ATTR(INFO, (code = -1, details = "details"), "\"message\"");
-        // {"lvl": ..., "msg": ..., "cat": ..., "file": ..., "line": ..., "func": ..., "time": ..., "code": ..., "detail": ...}
-        check(stream).matches("{\"lvl\":\"(.+)\",\"msg\":\"(.+)\",\"cat\":\"(.+)\",\"file\":\"(.+)\",\"line\":\\d+,\"func\":\".+\",\"time\":\\d+,\"code\":(.+),\"detail\":\"(.+)\"}\r\n")
+        // {"l": level, "m": message, "c": category, "f": file, "ln": line, "fn": function, "t": timestamp, "code": code, "detail": details}
+        check(stream).matches("{\"l\":\"(.+)\",\"m\":\"(.+)\",\"c\":\"(.+)\",\"f\":\"(.+)\",\"ln\":\\d+,\"fn\":\".+\",\"t\":\\d+,\"code\":(.+),\"detail\":\"(.+)\"}\r\n")
                 .at(0).equals("INFO")
                 .at(1).equals("\\\"message\\\"") // Special characters are escaped
                 .at(2).equals(LOG_THIS_CATEGORY())
@@ -999,7 +999,7 @@ TEST_CASE("Configuration requests") {
     SECTION("adding and removing message-based handler") {
         // Add handler
         std::string rep;
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\"," // Handler ID
                 "\"hnd\": {\"type\": \"NamedLogHandler\"}" // Handler settings
@@ -1008,25 +1008,25 @@ TEST_CASE("Configuration requests") {
         CHECK(handlerFactory.handler().stream() == nullptr); // No output stream
         CHECK(!streamFactory.hasStream());
         // Enumerate handlers
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[\"1\"]");
         // Do some logging
         LOG(TRACE, ""); // Ignored by default
         LOG(INFO, "");
         handlerFactory.handler().checkNext().levelEquals(LOG_LEVEL_INFO);
         // Remove handler
-        REQUIRE(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}", &rep));
         CHECK(rep.empty()); // No reply data expected
         CHECK(!handlerFactory.hasHandler());
         // Enumerate handlers
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[]"); // No active handlers
     }
 
     SECTION("adding and removing stream-based handler") {
         // Add handler
         std::string rep;
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\"," // Handler ID
                 "\"hnd\": {\"type\": \"NamedLogHandler\"}," // Handler settings
@@ -1036,7 +1036,7 @@ TEST_CASE("Configuration requests") {
         CHECK(handlerFactory.hasHandler());
         CHECK(streamFactory.hasStream());
         // Enumerate handlers
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[\"1\"]");
         // Do some logging
         LOG(TRACE, ""); LOG_PRINT(TRACE, "trace"); // Ignored by default
@@ -1044,18 +1044,18 @@ TEST_CASE("Configuration requests") {
         handlerFactory.handler().checkNext().levelEquals(LOG_LEVEL_INFO);
         streamFactory.stream().check().equals("info");
         // Remove handler
-        REQUIRE(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}", &rep));
         CHECK(rep.empty()); // No reply data expected
         CHECK(!handlerFactory.hasHandler());
         CHECK(!streamFactory.hasStream());
         // Enumerate handlers
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[]"); // No active handlers
     }
 
     SECTION("custom handler and stream parameters") {
         // Add handler
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"The Handler\"}}," // Handler name
@@ -1064,30 +1064,30 @@ TEST_CASE("Configuration requests") {
         CHECK(handlerFactory.hasHandler("The Handler"));
         CHECK(streamFactory.hasStream("The Stream"));
         // Remove handler
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
     }
 
     SECTION("adding multiple handlers with different filtering") {
         // Add handlers
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"a\"}},"
                 "\"lvl\": \"all\"" // LOG_LEVEL_ALL
                 "}"));
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"2\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"b\"}},"
                 "\"lvl\": \"info\"" // LOG_LEVEL_INFO
                 "}"));
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"3\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"c\"}},"
                 "\"lvl\": \"warn\"" // LOG_LEVEL_WARN
                 "}"));
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"4\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"d\"}},"
@@ -1095,14 +1095,14 @@ TEST_CASE("Configuration requests") {
                 "\"filt\": ["
                 "{\"cat\": \"test\", \"lvl\": \"trace\"}" // LOG_LEVEL_TRACE
                 "]}"));
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"5\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"e\"}},"
                 "\"lvl\": \"none\"" // LOG_LEVEL_NONE
                 "}"));
         std::string rep;
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[\"1\",\"2\",\"3\",\"4\",\"5\"]");
         CHECK(handlerFactory.hasHandler("a"));
         CHECK(handlerFactory.hasHandler("b"));
@@ -1137,43 +1137,43 @@ TEST_CASE("Configuration requests") {
                 .checkAtEnd();
         handlerFactory.handler("e").checkAtEnd();
         // Remove handlers
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"2\"}"));
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"3\"}"));
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"4\"}"));
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"5\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"2\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"3\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"4\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"5\"}"));
     }
 
     SECTION("replacing handler") {
         // Add handler
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"a\"}}"
                 "}"));
         std::string rep;
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[\"1\"]");
         CHECK(handlerFactory.hasHandler("a"));
         // Add another handler with the same ID
-        REQUIRE(processRequest("{"
+        REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
                 "\"id\": \"1\","
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"b\"}}" // a -> b
                 "}"));
-        REQUIRE(processRequest("{\"cmd\": \"enumHandlers\"}", &rep));
+        REQUIRE(processConfigRequest("{\"cmd\": \"enumHandlers\"}", &rep));
         CHECK(rep == "[\"1\"]");
         CHECK(!handlerFactory.hasHandler("a"));
         CHECK(handlerFactory.hasHandler("b")); // a -> b
         // Remove handler
-        CHECK(processRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
+        CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
     }
 
     SECTION("request errors and other checks") {
         SECTION("too small buffer for reply data") {
             char buf[] = "{\"cmd\": \"enumHandlers\"}";
             size_t repSize = 0;
-            REQUIRE(logProcessRequest(buf, // Buffer used for request and reply data
+            REQUIRE(logProcessConfigRequest(buf, // Buffer used for request and reply data
                     0, // Maximum size allowed for reply data
                     strlen(buf), // Request size
                     &repSize, // Actual size of reply data
@@ -1182,7 +1182,7 @@ TEST_CASE("Configuration requests") {
             CHECK(strncmp(buf, "[]", 2) != 0);
         }
         SECTION("unsupported handler type") {
-            CHECK(!processRequest("{"
+            CHECK(!processConfigRequest("{"
                     "\"cmd\": \"addHandler\","
                     "\"id\": \"1\","
                     "\"hnd\": {\"type\": \"DummyLogHandler\"},"
@@ -1190,7 +1190,7 @@ TEST_CASE("Configuration requests") {
                     "}"));
         }
         SECTION("unsupported stream type") {
-            CHECK(!processRequest("{"
+            CHECK(!processConfigRequest("{"
                     "\"cmd\": \"addHandler\","
                     "\"id\": \"1\","
                     "\"hnd\": {\"type\": \"NamedLogHandler\"},"
@@ -1199,31 +1199,31 @@ TEST_CASE("Configuration requests") {
         }
         SECTION("missing or invalid parameters") {
             SECTION("cmd") {
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"id\": \"1\""
                         "}")); // Missing command name
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"resetHandler\"" // Unsupported command
                         "\"id\": \"1\""
                         "}"));
             }
             SECTION("addHandler") {
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"addHandler\","
                         "\"hnd\": {\"type\": \"NamedLogHandler\"},"
                         "}")); // Missing handler ID
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"addHandler\","
                         "\"id\": \"1\","
                         "\"hnd\": {\"param\": {\"name\": \"a\"}}"
                         "}")); // Missing handler type
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"addHandler\","
                         "\"id\": \"1\","
                         "\"hnd\": {\"type\": \"NamedLogHandler\"},"
                         "\"lvl\": \"debug\"" // Invalid level name
                         "}"));
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"addHandler\","
                         "\"id\": \"1\","
                         "\"hnd\": {\"type\": \"NamedLogHandler\"},"
@@ -1232,7 +1232,7 @@ TEST_CASE("Configuration requests") {
                         "]}"));
             }
             SECTION("removeHandler") {
-                CHECK(!processRequest("{"
+                CHECK(!processConfigRequest("{"
                         "\"cmd\": \"removeHandler\","
                         "}")); // Missing handler ID
             }

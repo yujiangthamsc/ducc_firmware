@@ -146,7 +146,7 @@ private:
 
 size_t NonTrivialInt::s_count = 0;
 
-static_assert(!std::is_trivially_copyable<NonTrivialInt>::value, "NonTrivialInt is too trivial!");
+static_assert(!PARTICLE_VECTOR_TRIVIALLY_COPYABLE_TRAIT<NonTrivialInt>::value, "NonTrivialInt is too trivial!");
 
 template<typename T, typename AllocatorT>
 inline Checker<spark::Vector<T, AllocatorT>> check(const spark::Vector<T, AllocatorT> &vector) {

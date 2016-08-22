@@ -30,18 +30,18 @@
 
 #include "usb_hal.h"
 
-#ifdef USB_VENDOR_REQUEST_ENABLE
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef enum DataFormat { // TODO: Move to appropriate header
   DATA_FORMAT_INVALID = 0,
   DATA_FORMAT_BINARY = 10, // Generic binary format
   DATA_FORMAT_TEXT = 20, // Generic text format
   DATA_FORMAT_JSON = 30
 } DataFormat;
+
+#ifdef USB_VENDOR_REQUEST_ENABLE
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum USBRequestType {
   USB_REQUEST_INVALID                     = 0x0000,
