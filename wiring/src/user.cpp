@@ -168,14 +168,14 @@ bool __backup_ram_was_valid() { return false; }
 #ifdef USB_VENDOR_REQUEST_ENABLE
 
 bool usb_request_app_handler(USBRequest* req, void* reserved) {
-    LOG(INFO, "User");
     switch (req->type) {
-    case USB_REQUEST_CONFIG_LOG:
-        if (!spark::logProcessConfigRequest(req->data, req->reply_size, req->request_size, &req->reply_size, (DataFormat)req->format)) {
+    case USB_REQUEST_CONFIG_LOG: {
+        if (!spark::logProcessConfigRequest(req->data, USB_REQUEST_BUFFER_SIZE, req->request_size, &req->reply_size, (DataFormat)req->format)) {
             return false;
         }
         system_set_usb_request_result(req, USB_REQUEST_RESULT_OK, nullptr);
         return true;
+    }
     default:
         return false; // Unsupported request type
     }

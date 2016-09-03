@@ -39,19 +39,22 @@ typedef enum DataFormat { // TODO: Move to appropriate header
 
 #ifdef USB_VENDOR_REQUEST_ENABLE
 
+// Maximum supported size of USB request/reply data
+#define USB_REQUEST_BUFFER_SIZE 512
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef enum USBRequestType {
-  USB_REQUEST_INVALID                     = 0x0000,
-  USB_REQUEST_GET_DEVICE_ID               = 0x0001,
-  USB_REQUEST_GET_SYSTEM_VERSION          = 0x0002,
-  USB_REQUEST_RESET                       = 0x0003,
-  USB_REQUEST_ENTER_DFU_MODE              = 0x0004,
-  USB_REQUEST_ENTER_LISTENING_MODE        = 0x0005,
-  USB_REQUEST_TEST                        = 0x0006, // For testing purposes
-  USB_REQUEST_CONFIG_LOG                  = 0x0007
+  USB_REQUEST_INVALID                     = 0,
+  USB_REQUEST_GET_DEVICE_ID               = 10,
+  USB_REQUEST_GET_SYSTEM_VERSION          = 20,
+  USB_REQUEST_RESET                       = 30,
+  USB_REQUEST_ENTER_DFU_MODE              = 40,
+  USB_REQUEST_ENTER_LISTENING_MODE        = 50,
+  USB_REQUEST_TEST                        = 60, // For testing purposes
+  USB_REQUEST_CONFIG_LOG                  = 70
 } USBRequestType;
 
 typedef enum USBRequestResult {
@@ -64,8 +67,8 @@ typedef struct USBRequest {
   int type; // Request type (as defined by USBRequestType enum)
   char* data; // Data buffer
   size_t request_size; // Request size
-  size_t reply_size; // Reply size (set to maximum allowed size initially)
-  int format; // Data format
+  size_t reply_size; // Reply size (initialized to 0)
+  int format; // Data format (as defined by DataFormat enum)
 } USBRequest;
 
 // Callback invoked for USB requests that should be processed at application side
@@ -100,17 +103,15 @@ private:
 
   USBRequestData usbReq_;
 
-  // Maximum size allowed for request and reply data
-  static const size_t USB_REQUEST_BUFFER_SIZE = 512;
-
   uint8_t handleVendorRequest(HAL_USB_SetupRequest* req);
-  uint8_t handleAsyncVendorRequest(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_INVALID);
-  uint8_t fetchAsyncVendorRequestResult(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_INVALID);
+
+  uint8_t enqueueAsyncRequest(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_BINARY);
+  uint8_t fetchAsyncRequestResult(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_BINARY);
+
+  static void asyncRequestSystemHandler(void* data); // Called by SystemThread
+  static void asyncRequestApplicationHandler(void* data); // Called by ApplicationThread
 
   static uint8_t vendorRequestCallback(HAL_USB_SetupRequest* req, void* data); // Called by HAL
-  static void asyncVendorRequestCallback(void* data); // Called by SystemThread
-
-  static void setRequestResult(USBRequestData* req, USBRequestResult result);
 };
 
 #endif // __cplusplus

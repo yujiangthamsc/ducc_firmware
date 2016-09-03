@@ -25,8 +25,11 @@
 
 #include "system_control.h"
 
-#include "system_task.h"
 #include "deviceid_hal.h"
+
+#include "system_task.h"
+#include "system_threading.h"
+
 #include "spark_wiring.h"
 
 #ifdef USB_VENDOR_REQUEST_ENABLE
@@ -148,11 +151,11 @@ uint8_t SystemControlInterface::handleVendorRequest(HAL_USB_SetupRequest* req) {
       }
 
       case USB_REQUEST_TEST: {
-        return handleAsyncVendorRequest(req, DATA_FORMAT_BINARY);
+        return enqueueAsyncRequest(req);
       }
 
       case USB_REQUEST_CONFIG_LOG: {
-        return handleAsyncVendorRequest(req, DATA_FORMAT_JSON);
+        return enqueueAsyncRequest(req, DATA_FORMAT_JSON);
       }
 
       default: {
@@ -198,11 +201,11 @@ uint8_t SystemControlInterface::handleVendorRequest(HAL_USB_SetupRequest* req) {
       }
 
       case USB_REQUEST_TEST: {
-        return fetchAsyncVendorRequestResult(req, DATA_FORMAT_BINARY);
+        return fetchAsyncRequestResult(req);
       }
 
       case USB_REQUEST_CONFIG_LOG: {
-        return fetchAsyncVendorRequestResult(req, DATA_FORMAT_JSON);
+        return fetchAsyncRequestResult(req, DATA_FORMAT_JSON);
       }
 
       default: {
@@ -215,7 +218,7 @@ uint8_t SystemControlInterface::handleVendorRequest(HAL_USB_SetupRequest* req) {
   return 0;
 }
 
-uint8_t SystemControlInterface::handleAsyncVendorRequest(HAL_USB_SetupRequest* req, DataFormat fmt) {
+uint8_t SystemControlInterface::enqueueAsyncRequest(HAL_USB_SetupRequest* req, DataFormat fmt) {
   SPARK_ASSERT(req->bmRequestTypeDirection == 0); // Host to device
   if (usbReq_.active && !usbReq_.ready) {
     return 1; // // There is an active request already
@@ -223,33 +226,34 @@ uint8_t SystemControlInterface::handleAsyncVendorRequest(HAL_USB_SetupRequest* r
   if (req->wLength > 0) {
     if (!usbReq_.req.data) {
       return 1; // Initialization error
-    } else if (req->wLength > USB_REQUEST_BUFFER_SIZE) {
+    }
+    if (req->wLength > USB_REQUEST_BUFFER_SIZE) {
       return 1; // Too large request
-    } else if (req->wLength <= 64) {
+    }
+    if (req->wLength <= 64) {
       if (!req->data) {
         return 1; // Invalid request info
       }
       memcpy(usbReq_.req.data, req->data, req->wLength);
-    } else if (!req->data) {
+    } else {
       req->data = (uint8_t*)usbReq_.req.data; // Provide buffer for request data
       return 0; // OK
     }
   }
-  // Schedule request for further processing
-  if (!SystemISRTaskQueue.enqueue(asyncVendorRequestCallback, &usbReq_.req)) {
+  // Schedule request for processing in the system thread's context
+  if (!SystemISRTaskQueue.enqueue(asyncRequestSystemHandler, &usbReq_.req)) {
     return 1;
   }
   usbReq_.req.type = (USBRequestType)req->wIndex;
   usbReq_.req.request_size = req->wLength;
-  usbReq_.req.reply_size = USB_REQUEST_BUFFER_SIZE;
+  usbReq_.req.reply_size = 0;
   usbReq_.req.format = fmt;
   usbReq_.ready = false;
   usbReq_.active = true;
-  LOG(INFO, "7");
   return 0;
 }
 
-uint8_t SystemControlInterface::fetchAsyncVendorRequestResult(HAL_USB_SetupRequest* req, DataFormat fmt) {
+uint8_t SystemControlInterface::fetchAsyncRequestResult(HAL_USB_SetupRequest* req, DataFormat fmt) {
   SPARK_ASSERT(req->bmRequestTypeDirection == 1); // Device to host
   if (!usbReq_.ready) {
     return 1; // No reply data available
@@ -263,21 +267,52 @@ uint8_t SystemControlInterface::fetchAsyncVendorRequestResult(HAL_USB_SetupReque
   if (req->wLength > 0) {
     if (!usbReq_.req.data) {
       return 1; // Initialization error
-    } else if (req->wLength < usbReq_.req.reply_size) {
+    }
+    if (req->wLength < usbReq_.req.reply_size) {
       return 1; // Too large reply
-    } else if (req->wLength <= 64) {
+    }
+    if (req->wLength <= 64) {
       if (!req->data) {
         return 1; // Invalid request info
       }
       memcpy(req->data, usbReq_.req.data, usbReq_.req.reply_size);
-    } else if (!req->data) {
+    } else {
       req->data = (uint8_t*)usbReq_.req.data; // Provide buffer with reply data
-      req->wLength = usbReq_.req.reply_size;
     }
+    req->wLength = usbReq_.req.reply_size;
   }
   usbReq_.active = false;
   usbReq_.ready = false;
   return 0;
+}
+
+void SystemControlInterface::setRequestResult(USBRequest* req, USBRequestResult result) {
+  USBRequestData *r = (USBRequestData*)req;
+  r->result = result;
+  r->ready = true;
+}
+
+void SystemControlInterface::asyncRequestSystemHandler(void* data) {
+  USBRequest* req = static_cast<USBRequest*>(data);
+  switch (req->type) {
+  // Handle requests that should be processed by the system modules here
+  default:
+    if (usbReqAppHandler) {
+      asyncRequestApplicationHandler(data); // Forward request to the application thread
+    } else {
+      setRequestResult(req, USB_REQUEST_RESULT_ERROR);
+    }
+  }
+}
+
+void SystemControlInterface::asyncRequestApplicationHandler(void* data) {
+  // FIXME: Request leak may occur if underlying asynchronous event cannot be queued
+  APPLICATION_THREAD_CONTEXT_ASYNC(asyncRequestApplicationHandler(data));
+  USBRequest* req = static_cast<USBRequest*>(data);
+  SPARK_ASSERT(usbReqAppHandler);
+  if (!usbReqAppHandler(req, nullptr)) {
+    setRequestResult(req, USB_REQUEST_RESULT_ERROR);
+  }
 }
 
 uint8_t SystemControlInterface::vendorRequestCallback(HAL_USB_SetupRequest* req, void* data) {
@@ -286,19 +321,6 @@ uint8_t SystemControlInterface::vendorRequestCallback(HAL_USB_SetupRequest* req,
     return self->handleVendorRequest(req);
 
   return 1;
-}
-
-void SystemControlInterface::asyncVendorRequestCallback(void* data) {
-  USBRequest* req = static_cast<USBRequest*>(data);
-  if (!usbReqAppHandler || !usbReqAppHandler(req, nullptr)) {
-    setRequestResult(req, USB_REQUEST_RESULT_ERROR);
-  }
-}
-
-void SystemControlInterface::setRequestResult(USBRequest* req, USBRequestResult result) {
-  USBRequestData *r = (USBRequestData*)req;
-  r->result = result;
-  r->ready = true;
 }
 
 #endif // USB_VENDOR_REQUEST_ENABLE
