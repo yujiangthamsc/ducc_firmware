@@ -1,0 +1,54 @@
+#!/bin/bash
+
+usage() {
+  echo "$(basename $0) [options] <request> <value> <index>"
+  echo "Options:"
+  echo "-s <number of bytes> (maximum number of bytes to receive; default: 1024)"
+  exit 1
+}
+
+cd $(dirname "$0")
+source init_env
+
+check_tool usbtool
+
+# Default parameters
+size=1024
+
+# Parse arguments
+while getopts ":s:" opt; do
+  case $opt in
+    s)
+      size=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+shift $((OPTIND-1))
+
+usb_req=$1
+if [ ! $usb_req ]; then
+  error "Request is not specified"
+fi
+
+usb_val=$2
+if [ ! $usb_val ]; then
+  error "Value is not specified"
+fi
+
+usb_index=$3
+if [ ! $usb_index ]; then
+  error "Index is not specified"
+fi
+
+# Send "in" request
+data=$(usbtool -v 0x$USB_VENDOR_ID -p 0x$USB_PRODUCT_ID -n $size control in vendor device $usb_req $usb_val $usb_index)
+
+if [ $size != 0 ]; then
+  # Decode usbtool's output, e.g. "0x61 0x62 0x63" -> "abc"
+  data=$(printf "$data" | sed 's/ //g;s/0x//g' | xxd -r -p)
+  echo "$data"
+fi

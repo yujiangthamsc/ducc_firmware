@@ -1,0 +1,116 @@
+#!/bin/bash
+
+usage() {
+  echo "$(basename $0) [options] [data]"
+  echo "Options:"
+  echo "-r <request> (default: 80)"
+  echo "-v <value> (default: 0)"
+  echo "-i <index> (default: 60)"
+  echo "-s <number of bytes>"
+  echo "-t <timeout> (default: 3000)"
+  echo "-d <device>"
+  echo "-n <number of lines> (default: 1)"
+  echo "-b <baud rate>"
+  exit 1
+}
+
+# Prints current UNIX time with nanosecond precision
+timestamp() {
+  date "+%s.%N"
+}
+
+# Returns 0 if first argument is less than second argument
+less_than() {
+  return $(echo "$1 >= $2" | bc)
+}
+
+cd $(dirname "$0")
+source init_env
+
+# Default parameters
+usb_req=80
+usb_val=0
+usb_index=60
+size=
+timeout=3000
+dev=
+lines=1
+baud=
+
+# Parse arguments
+while getopts ":r:v:i:s:t:d:n:b:" opt; do
+  case $opt in
+    r)
+      usb_req=$OPTARG
+      ;;
+    v)
+      usb_val=$OPTARG
+      ;;
+    i)
+      usb_index=$OPTARG
+      ;;
+    s)
+      size=$OPTARG
+      ;;
+    t)
+      timeout=$OPTARG
+      ;;
+    d)
+      dev=$OPTARG
+      ;;
+    n)
+      lines=$OPTARG
+      ;;
+    b)
+      baud=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+shift $((OPTIND-1))
+
+req_data="$1"
+
+# Start reading serial output
+if [ $dev ]; then
+  if [ $lines ]; then
+    lines_arg="-n $lines"
+  fi
+  if [ $baud ]; then
+    baud_arg="-b $baud"
+  fi
+  ./tty_read_line $lines_arg $baud_arg -t $timeout $dev &
+  read_line_pid=$!
+  trap "kill $read_line_pid 2>/dev/null" EXIT
+  # Give the script some time to start reading
+  sleep 0.2
+fi
+
+# Send "out" request
+./send_usb_out_req $usb_req $usb_val $usb_index "$req_data"
+
+if [ $size ]; then
+  size_arg="-s $size"
+fi
+
+# Convert milliseconds to seconds
+timeout=$(echo "scale=3;$timeout/1000" | bc)
+time_end=$(echo "$(timestamp) + $timeout" | bc)
+
+# Send "in" requests until reply is received or timed out
+while : ; do
+  rep_data=$(./send_usb_in_req $size_arg $usb_req $usb_val $usb_index 2>/dev/null) && break
+  less_than $(timestamp) $time_end || error "Request timeout"
+done
+
+# Stop reading device output
+if [ $dev ]; then
+  trap - EXIT
+  wait $read_line_pid
+fi
+
+# Print reply data
+echo "$rep_data"

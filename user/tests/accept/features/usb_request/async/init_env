@@ -1,0 +1,67 @@
+#!/bin/bash
+
+set -e
+
+warn() {
+  >&2 echo "Warning: $1"
+}
+
+error() {
+  >&2 echo "Error: $1"
+  exit 1
+}
+
+check_tool() {
+  which $1 > /dev/null || error "'$1' is not installed"
+}
+
+# USB vendor/product ID
+if [ ! $USB_VENDOR_ID ] || [ ! $USB_PRODUCT_ID ]; then
+  if [ ! $PLATFORM ]; then
+    error "PLATFORM is not defined"
+  fi
+  case $PLATFORM in
+    photon)
+      USB_VENDOR_ID=2b04
+      USB_PRODUCT_ID=c006
+      ;;
+    p1)
+      USB_VENDOR_ID=2b04
+      USB_PRODUCT_ID=d008
+      ;;
+    electron)
+      USB_VENDOR_ID=2b04
+      USB_PRODUCT_ID=d00a
+      ;;
+    *)
+      error "Unsupported platform: $PLATFORM"
+      ;;
+  esac
+  export USB_VENDOR_ID
+  export USB_PRODUCT_ID
+fi
+
+# Primary serial over USB interface
+if [ ! $DEV_SERIAL ]; then
+  if [ $PARTICLE_SERIAL_DEV ]; then
+    DEV_SERIAL=$PARTICLE_SERIAL_DEV
+  else
+    DEV_SERIAL=/dev/ttyACM0
+  fi
+  warn "DEV_SERIAL is not defined, using $DEV_SERIAL (Serial)"
+  export DEV_SERIAL
+fi
+
+# UART adapter device
+if [ ! $DEV_SERIAL1 ]; then
+  DEV_SERIAL1=/dev/ttyUSB0
+  warn "DEV_SERIAL1 is not defined, using $DEV_SERIAL1 (Serial1)"
+  export DEV_SERIAL1
+fi
+
+# Additional serial over USB interface
+if [ ! $DEV_USB_SERIAL1 ]; then
+  DEV_USB_SERIAL1=/dev/ttyACM1
+  warn "DEV_USB_SERIAL1 is not defined, using $DEV_USB_SERIAL1 (USBSerial1)"
+  export DEV_USB_SERIAL1
+fi
