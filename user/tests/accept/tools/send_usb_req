@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 usage() {
   echo "$(basename $0) [options] [data]"
   echo "Options:"
@@ -23,9 +25,6 @@ timestamp() {
 less_than() {
   return $(echo "$1 >= $2" | bc)
 }
-
-cd $(dirname "$0")
-source init_env
 
 # Default parameters
 usb_req=80
@@ -76,21 +75,18 @@ req_data="$1"
 
 # Start reading serial output
 if [ $dev ]; then
-  if [ $lines ]; then
-    lines_arg="-n $lines"
-  fi
   if [ $baud ]; then
     baud_arg="-b $baud"
   fi
-  ./tty_read_line $lines_arg $baud_arg -t $timeout $dev &
-  read_line_pid=$!
-  trap "kill $read_line_pid 2>/dev/null" EXIT
+  tty_read_line $baud_arg -n $lines -t $timeout $dev &
+  tty_read_line_pid=$!
+  trap "kill $tty_read_line_pid 2>/dev/null" EXIT
   # Give the script some time to start reading
   sleep 0.2
 fi
 
 # Send "out" request
-./send_usb_out_req $usb_req $usb_val $usb_index "$req_data"
+send_usb_out_req $usb_req $usb_val $usb_index "$req_data"
 
 if [ $size ]; then
   size_arg="-s $size"
@@ -102,14 +98,14 @@ time_end=$(echo "$(timestamp) + $timeout" | bc)
 
 # Send "in" requests until reply is received or timed out
 while : ; do
-  rep_data=$(./send_usb_in_req $size_arg $usb_req $usb_val $usb_index 2>/dev/null) && break
+  rep_data=$(send_usb_in_req $size_arg $usb_req $usb_val $usb_index 2>/dev/null) && break
   less_than $(timestamp) $time_end || error "Request timeout"
 done
 
 # Stop reading device output
 if [ $dev ]; then
   trap - EXIT
-  wait $read_line_pid
+  wait $tty_read_line_pid
 fi
 
 # Print reply data

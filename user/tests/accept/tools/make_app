@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+work_dir=$(pwd)
+this_dir=$(cd $(dirname "$0") && pwd)
+main_dir=$(cd "$this_dir/../../../../main" && pwd)
+
+app_dir=$1
+[ ! "$app_dir" ] && app_dir=.
+app_dir=$(cd "$work_dir/$app_dir" && pwd)
+
+cd "$main_dir"
+make -s all program-dfu APPDIR="$app_dir"

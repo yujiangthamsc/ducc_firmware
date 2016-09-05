@@ -1,14 +1,13 @@
 #!/bin/bash
 
+set -e
+
 usage() {
   echo "$(basename $0) [options] <request> <value> <index>"
   echo "Options:"
   echo "-s <number of bytes> (maximum number of bytes to receive; default: 1024)"
   exit 1
 }
-
-cd $(dirname "$0")
-source init_env
 
 check_tool usbtool
 

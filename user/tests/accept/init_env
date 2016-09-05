@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 warn() {
   >&2 echo "Warning: $1"
 }
@@ -15,11 +13,12 @@ check_tool() {
   which $1 > /dev/null || error "'$1' is not installed"
 }
 
+if [ ! $PLATFORM ]; then
+  error "PLATFORM is not defined"
+fi
+
 # USB vendor/product ID
 if [ ! $USB_VENDOR_ID ] || [ ! $USB_PRODUCT_ID ]; then
-  if [ ! $PLATFORM ]; then
-    error "PLATFORM is not defined"
-  fi
   case $PLATFORM in
     photon)
       USB_VENDOR_ID=2b04

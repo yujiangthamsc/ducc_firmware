@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 usage() {
   echo "$(basename $0) [options] <device>"
   echo "Options:"
@@ -8,9 +10,6 @@ usage() {
   echo "-b <baud rate>"
   exit 1
 }
-
-cd $(dirname "$0")
-source init_env
 
 check_tool stty
 
