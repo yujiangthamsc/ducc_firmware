@@ -1,5 +1,5 @@
 #define LOG_MODULE_CATEGORY "module"
-#define LOG_INCLUDE_SOURCE_INFO
+#define LOG_INCLUDE_SOURCE_INFO 1
 
 #include "spark_wiring_logging.h"
 #include "service_debug.h"
