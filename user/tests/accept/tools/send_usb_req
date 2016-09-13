@@ -2,18 +2,43 @@
 
 set -e
 
+check_tool usbtool
+
+# Default parameters
+usb_req=80
+usb_val=0
+usb_index=60
+req_type=reqrep
+max_size=1024
+timeout=5000
+hex_flag=
+
 usage() {
   echo "$(basename $0) [options] [data]"
   echo "Options:"
-  echo "-r <request> (default: 80)"
-  echo "-v <value> (default: 0)"
-  echo "-i <index> (default: 60)"
-  echo "-s <number of bytes>"
-  echo "-t <timeout> (default: 3000)"
-  echo "-d <device>"
-  echo "-n <number of lines> (default: 1)"
-  echo "-b <baud rate>"
+  echo "-r <request> (request field; default: $usb_req)"
+  echo "-v <value> (value field; default: $usb_val)"
+  echo "-i <index> (index field; default: $usb_index)"
+  echo "-d <type> (request type: in, out, reqrep; default: $req_type)"
+  echo "-n <size> (maximum number of bytes to receive; default: $max_size)"
+  echo "-t <timeout> (timeout in milliseconds; default: $timeout)"
+  echo "-x (use hex-encoded data format)"
   exit 1
+}
+
+# Sends host-to-device request
+send_out_req() {
+  if [ "$1" ]; then
+    data_arg="-d $1"
+  else
+    data_arg=
+  fi
+  usbtool -v 0x$USB_VENDOR_ID -p 0x$USB_PRODUCT_ID $data_arg control out vendor device $usb_req $usb_val $usb_index
+}
+
+# Sends device-to-host request
+send_in_req() {
+  usbtool -v 0x$USB_VENDOR_ID -p 0x$USB_PRODUCT_ID -n $max_size control in vendor device $usb_req $usb_val $usb_index
 }
 
 # Prints current UNIX time with nanosecond precision
@@ -26,18 +51,8 @@ less_than() {
   return $(echo "$1 >= $2" | bc)
 }
 
-# Default parameters
-usb_req=80
-usb_val=0
-usb_index=60
-size=
-timeout=3000
-dev=
-lines=1
-baud=
-
 # Parse arguments
-while getopts ":r:v:i:s:t:d:n:b:" opt; do
+while getopts ":r:v:i:d:n:t:x" opt; do
   case $opt in
     r)
       usb_req=$OPTARG
@@ -48,20 +63,17 @@ while getopts ":r:v:i:s:t:d:n:b:" opt; do
     i)
       usb_index=$OPTARG
       ;;
-    s)
-      size=$OPTARG
+    d)
+      req_type=$OPTARG
+      ;;
+    n)
+      max_size=$OPTARG
       ;;
     t)
       timeout=$OPTARG
       ;;
-    d)
-      dev=$OPTARG
-      ;;
-    n)
-      lines=$OPTARG
-      ;;
-    b)
-      baud=$OPTARG
+    x)
+      hex_flag=1
       ;;
     *)
       usage
@@ -71,42 +83,49 @@ done
 
 shift $((OPTIND-1))
 
-req_data="$1"
+if [ $req_type != in ] && [ $req_type != out ] && [ $req_type != reqrep ]; then
+  error "Invalid request type: $req_type"
+fi
 
-# Start reading serial output
-if [ $dev ]; then
-  if [ $baud ]; then
-    baud_arg="-b $baud"
+if [ $req_type == reqrep ] || [ $req_type == out ]; then
+  data="$1"
+  if [ "$data" ]; then
+    if [ ! $hex_flag ]; then
+      # "abc" -> "616263"
+      data=$(printf "$data" | xxd -p | tr -d '\n')
+    fi
+    # "616263" -> "0x61,0x62,0x63"
+    data=$(printf "$data" | fold -w 2 | paste -s -d , | sed 's/\([^,]*\)/0x\1/g')
   fi
-  tty_read_line $baud_arg -n $lines -t $timeout $dev &
-  tty_read_line_pid=$!
-  trap "kill $tty_read_line_pid 2>/dev/null" EXIT
-  # Give the script some time to start reading
-  sleep 0.2
+
+  # Send host-to-device request
+  send_out_req "$data" > /dev/null
 fi
 
-# Send "out" request
-send_usb_out_req $usb_req $usb_val $usb_index "$req_data"
+if [ $req_type == reqrep ] || [ $req_type == in ]; then
+  if [ $req_type == reqrep ]; then
+    # Convert milliseconds to seconds
+    timeout=$(echo "scale=3;$timeout/1000" | bc)
+    time_end=$(echo "$(timestamp) + $timeout" | bc)
 
-if [ $size ]; then
-  size_arg="-s $size"
+    # Keep sending device-to-host requests until a reply is received
+    while : ; do
+      data=$(send_in_req 2>/dev/null) && break
+      less_than $(timestamp) $time_end || error "Request timeout"
+    done
+  else
+    # Send device-to-host request
+    data=$(send_in_req)
+  fi
+
+  if [ $max_size != 0 ]; then
+    # "0x61 0x62 0x63" -> "616263"
+    data=$(printf "$data" | sed 's/ //g;s/0x//g')
+    if [ ! $hex_flag ]; then
+      # "616263" -> "abc"
+      data=$(printf "$data" | xxd -r -p)
+    fi
+    # Print reply data
+    echo "$data"
+  fi
 fi
-
-# Convert milliseconds to seconds
-timeout=$(echo "scale=3;$timeout/1000" | bc)
-time_end=$(echo "$(timestamp) + $timeout" | bc)
-
-# Send "in" requests until reply is received or timed out
-while : ; do
-  rep_data=$(send_usb_in_req $size_arg $usb_req $usb_val $usb_index 2>/dev/null) && break
-  less_than $(timestamp) $time_end || error "Request timeout"
-done
-
-# Stop reading device output
-if [ $dev ]; then
-  trap - EXIT
-  wait $tty_read_line_pid
-fi
-
-# Print reply data
-echo "$rep_data"

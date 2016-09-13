@@ -2,13 +2,20 @@
 
 set -e
 
-work_dir=$(pwd)
+# Path to this script
 this_dir=$(cd $(dirname "$0") && pwd)
+
+# Path to firmware's main directory
 main_dir=$(cd "$this_dir/../../../../main" && pwd)
 
-app_dir=$1
-[ ! "$app_dir" ] && app_dir=.
-app_dir=$(cd "$work_dir/$app_dir" && pwd)
+# Path to application
+[ "$1" ] && cd "$1"
+app_dir=$(pwd)
 
+# Create temporary directory for target files
+tmp_dir=$(mktemp -d)
+trap "rm -rf $tmp_dir" EXIT
+
+# Build and flash the application
 cd "$main_dir"
-make -s all program-dfu APPDIR="$app_dir"
+make -s all program-dfu APPDIR="$app_dir" TARGET_DIR="$tmp_dir"
