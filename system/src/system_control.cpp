@@ -235,7 +235,7 @@ uint8_t SystemControlInterface::enqueueAsyncRequest(HAL_USB_SetupRequest* req, D
         return 1; // Invalid request info
       }
       memcpy(usbReq_.req.data, req->data, req->wLength);
-    } else {
+    } else if (!req->data) {
       req->data = (uint8_t*)usbReq_.req.data; // Provide buffer for request data
       return 0; // OK
     }
