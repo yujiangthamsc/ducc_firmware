@@ -167,10 +167,22 @@ bool __backup_ram_was_valid() { return false; }
 
 #ifdef USB_VENDOR_REQUEST_ENABLE
 
+// Synchronous handler for customizable requests (USBRequestType::USB_REQUEST_CUSTOM)
+bool __attribute((weak)) usb_request_custom_handler(char* buf, size_t buf_size, size_t req_size, size_t* rep_size) {
+    return false;
+}
+
 bool usb_request_app_handler(USBRequest* req, void* reserved) {
     switch (req->type) {
-    case USB_REQUEST_CONFIG_LOG: {
+    case USB_REQUEST_LOG_CONFIG: {
         if (!spark::logProcessConfigRequest(req->data, USB_REQUEST_BUFFER_SIZE, req->request_size, &req->reply_size, (DataFormat)req->format)) {
+            return false;
+        }
+        system_set_usb_request_result(req, USB_REQUEST_RESULT_OK, nullptr);
+        return true;
+    }
+    case USB_REQUEST_CUSTOM: {
+        if (!usb_request_custom_handler(req->data, USB_REQUEST_BUFFER_SIZE, req->request_size, &req->reply_size)) {
             return false;
         }
         system_set_usb_request_result(req, USB_REQUEST_RESULT_OK, nullptr);
