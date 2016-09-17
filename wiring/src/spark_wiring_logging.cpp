@@ -57,8 +57,7 @@ using namespace spark;
       }
       "filt": [ // Category filters
         {
-          "cat": "app", // Category name
-          "lvl": "all" // Logging level
+          "app": "all" // Category name and logging level
         }
       ],
       "lvl": "warn" // Default logging level
@@ -170,17 +169,14 @@ private:
             JSONString cat;
             LogLevel level = LOG_LEVEL_INFO; // Default level
             JSONObjectIterator it2(it.value());
-            while (it2.next()) {
-                if (it2.name() == "cat") { // Category
-                    cat = it2.value().toString();
-                } else if (it2.name() == "lvl") { // Level
-                    if (!parseLevel(it2.value(), &level)) {
-                        return false;
-                    }
+            if (it2.next()) {
+                cat = it2.name();
+                if (cat.isEmpty()) {
+                    return false;
                 }
-            }
-            if (cat.isEmpty()) {
-                return false;
+                if (!parseLevel(it2.value(), &level)) {
+                    return false;
+                }
             }
             filters->append(LogCategoryFilter((String)cat, level));
         }
@@ -613,7 +609,8 @@ Print* spark::DefaultOutputStreamFactory::createStream(const char *type, const J
 void spark::DefaultOutputStreamFactory::destroyStream(Print *stream) {
 #if PLATFORM_ID != 3
     if (stream == &Serial) {
-        Serial.end();
+        // Uninitializing primary USB serial causes the device to get disconnected from the host
+        // Serial.end();
         return;
     }
 #if Wiring_USBSerial1

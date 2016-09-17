@@ -1053,7 +1053,7 @@ TEST_CASE("Configuration requests") {
         CHECK(rep == "[]"); // No active handlers
     }
 
-    SECTION("custom handler and stream parameters") {
+    SECTION("handler- and stream-specific parameters") {
         // Add handler
         REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
@@ -1067,7 +1067,7 @@ TEST_CASE("Configuration requests") {
         CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
     }
 
-    SECTION("adding multiple handlers with different filtering") {
+    SECTION("adding multiple handlers with different settings") {
         // Add handlers
         REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
@@ -1093,7 +1093,7 @@ TEST_CASE("Configuration requests") {
                 "\"hnd\": {\"type\": \"NamedLogHandler\", \"param\": {\"name\": \"d\"}},"
                 "\"lvl\": \"error\"," // LOG_LEVEL_ERROR (default level)
                 "\"filt\": ["
-                "{\"cat\": \"test\", \"lvl\": \"trace\"}" // LOG_LEVEL_TRACE
+                "{\"test\": \"trace\"}" // LOG_LEVEL_TRACE
                 "]}"));
         REQUIRE(processConfigRequest("{"
                 "\"cmd\": \"addHandler\","
@@ -1169,7 +1169,7 @@ TEST_CASE("Configuration requests") {
         CHECK(processConfigRequest("{\"cmd\": \"removeHandler\", \"id\": \"1\"}"));
     }
 
-    SECTION("request errors and other checks") {
+    SECTION("error handling and other checks") {
         SECTION("too small buffer for reply data") {
             char buf[] = "{\"cmd\": \"enumHandlers\"}";
             size_t repSize = 0;
@@ -1228,7 +1228,7 @@ TEST_CASE("Configuration requests") {
                         "\"id\": \"1\","
                         "\"hnd\": {\"type\": \"NamedLogHandler\"},"
                         "\"filt\": ["
-                        "{\"lvl\": \"trace\"}" // Missing category name
+                        "{\"\": \"trace\"}" // Empty category name
                         "]}"));
             }
             SECTION("removeHandler") {
