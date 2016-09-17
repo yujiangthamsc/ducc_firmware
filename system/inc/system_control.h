@@ -47,14 +47,15 @@ extern "C" {
 #endif
 
 typedef enum USBRequestType {
-  USB_REQUEST_INVALID                     = 0,
-  USB_REQUEST_GET_DEVICE_ID               = 10,
-  USB_REQUEST_GET_SYSTEM_VERSION          = 20,
-  USB_REQUEST_RESET                       = 30,
-  USB_REQUEST_ENTER_DFU_MODE              = 40,
-  USB_REQUEST_ENTER_LISTENING_MODE        = 50,
-  USB_REQUEST_TEST                        = 60, // For testing purposes
-  USB_REQUEST_CONFIG_LOG                  = 70
+  USB_REQUEST_INVALID = 0,
+  USB_REQUEST_CUSTOM = 10, // Customizable request processed in application thread
+  USB_REQUEST_DEVICE_ID = 20,
+  USB_REQUEST_SYSTEM_VERSION = 30,
+  USB_REQUEST_RESET = 40,
+  USB_REQUEST_DFU_MODE = 50,
+  USB_REQUEST_SAFE_MODE = 60,
+  USB_REQUEST_LISTENING_MODE = 70,
+  USB_REQUEST_LOG_CONFIG = 80
 } USBRequestType;
 
 typedef enum USBRequestResult {
@@ -105,13 +106,15 @@ private:
 
   uint8_t handleVendorRequest(HAL_USB_SetupRequest* req);
 
-  uint8_t enqueueAsyncRequest(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_BINARY);
-  uint8_t fetchAsyncRequestResult(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_BINARY);
+  uint8_t enqueueRequest(HAL_USB_SetupRequest* req, DataFormat fmt = DATA_FORMAT_BINARY);
+  uint8_t fetchRequestResult(HAL_USB_SetupRequest* req);
 
-  static void asyncRequestSystemHandler(void* data); // Called by SystemThread
-  static void asyncRequestApplicationHandler(void* data); // Called by ApplicationThread
+  static void processSystemRequest(void* data); // Called by SystemThread
+  static void processAppRequest(void* data); // Called by ApplicationThread
 
   static uint8_t vendorRequestCallback(HAL_USB_SetupRequest* req, void* data); // Called by HAL
+
+  static bool setRequestResult(USBRequest* req, const char* data, size_t size);
 };
 
 #endif // __cplusplus
