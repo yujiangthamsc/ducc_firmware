@@ -1,25 +1,36 @@
 require 'aruba/cucumber'
-require 'concurrent/executors'
-# require 'eventmachine'
-require 'em-rubyserial'
+require 'concurrent/atomics'
+require 'em/pure_ruby'
 
-em_thread_exec = Concurrent::SingleThreadExecutor.new
+# Runs EventMachine's event loop in background thread
+class EventLoop
+  def initialize
+    started = Concurrent::Event.new
+    @thread = Thread.new do
+      EM.run do
+        started.set
+      end
+    end
+    started.wait
+  end
+
+  def shutdown
+    EM.stop_event_loop
+    @thread.join
+  end
+end
+
+event_loop = EventLoop.new
+
+at_exit do
+  event_loop.shutdown
+end
 
 Before do |scenario|
-  # Start event loop in separate thread
-  em_started = Concurrent::Event.new
-  em_thread_exec.post do
-    EM.run do
-      em_started.set
-    end
-  end
-  em_started.wait
   @current_scenario = scenario
 end
 
 After do |scenario|
-  Particle::Usb.instance.reset
   Particle::Serial.instance.reset
-  # Stop event loop
-  EM.stop_event_loop
+  Particle::Usb.instance.reset
 end
