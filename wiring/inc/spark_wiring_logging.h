@@ -30,7 +30,7 @@
 #include "spark_wiring_vector.h"
 #include "spark_wiring_platform.h"
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
 #include "system_control.h"
 #endif
 
@@ -444,7 +444,7 @@ private:
     friend class Logger;
 };
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
 
 // NOTE: This is an experimental API and is subject to change
 class LogHandlerFactory {
@@ -484,7 +484,7 @@ private:
     static void getParams(const JSONValue &params, int *baudRate);
 };
 
-#endif // Wiring_DynamicLogConfig
+#endif // Wiring_LogConfig
 
 /*!
     \brief Log manager.
@@ -514,7 +514,7 @@ public:
     */
     void removeHandler(LogHandler *handler);
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
 
     /*!
         \brief Creates and registers a factory log handler.
@@ -561,7 +561,7 @@ public:
     */
     void setStreamFactory(OutputStreamFactory *factory);
 
-#endif // Wiring_DynamicLogConfig
+#endif // Wiring_LogConfig
 
     /*!
         \brief Returns log manager's instance.
@@ -577,7 +577,7 @@ private:
 
     Vector<LogHandler*> activeHandlers_;
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
     Vector<FactoryHandler> factoryHandlers_;
     LogHandlerFactory *handlerFactory_;
     OutputStreamFactory *streamFactory_;
@@ -590,7 +590,7 @@ private:
     // This class can be instantiated only via instance() method
     LogManager();
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
     void destroyFactoryHandler(const char *id);
     void destroyFactoryHandlers();
 #endif
@@ -604,7 +604,7 @@ private:
     static int logEnabled(int level, const char *category, void *reserved);
 };
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
 
 /*!
     \brief Performs processing of a configuration request.
@@ -619,7 +619,7 @@ private:
 */
 bool logProcessConfigRequest(char *buf, size_t bufSize, size_t reqSize, size_t *repSize, DataFormat fmt);
 
-#endif // Wiring_DynamicLogConfig
+#endif // Wiring_LogConfig
 
 /*!
     \brief Default logger instance.
@@ -935,7 +935,7 @@ inline void spark::AttributedLogger::log(LogLevel level, const char *fmt, va_lis
     log_message_v(level, name_, &attr_, nullptr, fmt, args);
 }
 
-#if Wiring_DynamicLogConfig
+#if Wiring_LogConfig
 
 // spark::LogHandlerFactory
 inline void spark::LogHandlerFactory::destroyHandler(LogHandler *handler) {
@@ -947,6 +947,6 @@ inline void spark::OutputStreamFactory::destroyStream(Print *stream) {
     delete stream;
 }
 
-#endif // Wiring_DynamicLogConfig
+#endif // Wiring_LogConfig
 
 #endif // SPARK_WIRING_LOGGING_H

@@ -40,12 +40,11 @@ const jsmntok_t* skipToken(const jsmntok_t *t) {
     return t;
 }
 
-template<typename T>
-T numFromToken(const jsmntok_t *t, const char *json, bool *ok = nullptr) {
+double doubleFromToken(const jsmntok_t *t, const char *json, bool *ok = nullptr) {
     // SPARK_ASSERT(t->type == JSMN_PRIMITIVE);
     const char* const s = json + t->start;
     char *end = nullptr;
-    const T val = strtod(s, &end);
+    const double val = strtod(s, &end);
     if (!end || *end != '\0') {
         return 0.0; // Error
     }
@@ -121,14 +120,14 @@ bool spark::JSONValue::toBool() const {
     case JSON_TYPE_BOOL:
         return boolFromToken(t_, d_->json);
     case JSON_TYPE_NUMBER:
-        return numFromToken<bool>(t_, d_->json);
+        return doubleFromToken(t_, d_->json);
     case JSON_TYPE_STRING: {
         const char* const s = d_->json + t_->start;
         if (*s == '\0' || strcmp(s, "false") == 0) { // Empty string or "false" in lower case
             return false;
         }
         bool ok = false;
-        const bool val = numFromToken<bool>(t_, d_->json, &ok); // Check if string can be converted to a number
+        const bool val = doubleFromToken(t_, d_->json, &ok); // Check if string can be converted to a number
         if (ok) {
             return val;
         }
@@ -139,25 +138,13 @@ bool spark::JSONValue::toBool() const {
     }
 }
 
-int spark::JSONValue::toInt() const {
-    switch (type()) {
-    case JSON_TYPE_BOOL:
-        return boolFromToken(t_, d_->json);
-    case JSON_TYPE_NUMBER:
-    case JSON_TYPE_STRING:
-        return numFromToken<int>(t_, d_->json);
-    default:
-        return 0;
-    }
-}
-
 double spark::JSONValue::toDouble() const {
     switch (type()) {
     case JSON_TYPE_BOOL:
         return boolFromToken(t_, d_->json);
     case JSON_TYPE_NUMBER:
     case JSON_TYPE_STRING:
-        return numFromToken<double>(t_, d_->json);
+        return doubleFromToken(t_, d_->json);
     default:
         return 0.0;
     }

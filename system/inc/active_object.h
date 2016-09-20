@@ -19,12 +19,15 @@
 
 #pragma once
 
+#include <cstddef>
+
 #if PLATFORM_THREADING
 
 #include <functional>
 #include <mutex>
 #include <thread>
 #include <future>
+
 #include "channel.h"
 #include "concurrent_hal.h"
 
