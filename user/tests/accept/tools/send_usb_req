@@ -2,7 +2,9 @@
 
 set -e
 
-check_tool usbtool
+require_tool usbtool
+require_var USB_VENDOR_ID
+require_var USB_PRODUCT_ID
 
 # Default parameters
 usb_req=80

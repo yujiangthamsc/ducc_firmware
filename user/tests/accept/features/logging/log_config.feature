@@ -3,7 +3,7 @@ Feature: Runtime logging configuration. See also user/tests/unit/logging.cpp
 
 Background:
   Given the application log_config_app
-  # Reset the device before running scenario
+  # Reset the device before running a scenario
   And I reset the device
 
 
@@ -37,8 +37,6 @@ Scenario Outline: Enable logging on each of the serial interfaces
       }
     }
     """
-  # USBSerial1 may take some time to get registered at the host
-  And I wait for 0.5 seconds
   And I open <Serial>
   And I send USB request
     """

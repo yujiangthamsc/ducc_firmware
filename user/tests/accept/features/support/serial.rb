@@ -1,8 +1,7 @@
 require 'concurrent/synchronization'
 require 'concurrent/utility/monotonic_time'
-require 'singleton'
-
 require 'em-rubyserial'
+require 'singleton'
 
 module Particle
   class SerialPort < EM::Connection
@@ -96,6 +95,8 @@ module Particle
         p.close
         @active_ports.delete(port)
       end
+      # Certain ports, such as USBSerial1, may take some time to get registered at the host
+      wait_until_accessible(dev)
       p = EM.open_serial(dev, baud, data_bits, SerialPort)
       @active_ports[port] = p
     end
@@ -113,7 +114,7 @@ module Particle
       active_port(port).wait_until(timeout, condition)
     end
 
-    def wait_while(port, timeout = 0.5, &condition)
+    def wait_while(port, timeout = 1, &condition)
       active_port(port).wait_while(timeout, condition)
     end
 
@@ -126,6 +127,17 @@ module Particle
     end
 
     private
+
+    def wait_until_accessible(file, timeout = 3)
+      if !File.exist?(file) || !File.readable?(file) || !File.writable?(file)
+        Timeout::timeout(timeout) do
+          loop do
+            sleep(0.1)
+            break if File.exist?(file) && File.readable?(file) && File.writable?(file)
+          end
+        end
+      end
+    end
 
     def active_port(port)
       p = @active_ports[port]

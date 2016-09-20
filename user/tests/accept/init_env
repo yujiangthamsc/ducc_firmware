@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ $PARTICLE_TEST_ENV ]; then
+  return
+fi
+
 warn() {
   >&2 echo "Warning: $1"
 }
@@ -9,15 +13,17 @@ error() {
   exit 1
 }
 
-check_tool() {
+require_tool() {
   which $1 > /dev/null || error "'$1' is not installed"
 }
 
-export -f warn error check_tool
+require_var() {
+  [ ${!1+x} ] || error "$1 is not defined"
+}
 
-if [ ! $PLATFORM ]; then
-  error "PLATFORM is not defined"
-fi
+export -f warn error require_tool require_var
+
+require_var PLATFORM
 
 # USB vendor/product ID
 if [ ! $USB_VENDOR_ID ] || [ ! $USB_PRODUCT_ID ]; then
@@ -66,3 +72,5 @@ if [ ! $PARTICLE_USB_SERIAL1_DEV ]; then
   warn "PARTICLE_USB_SERIAL1_DEV is not defined, using $PARTICLE_USB_SERIAL1_DEV (USBSerial1)"
   export PARTICLE_USB_SERIAL1_DEV
 fi
+
+export PARTICLE_TEST_ENV=1

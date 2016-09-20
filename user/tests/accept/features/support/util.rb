@@ -2,6 +2,8 @@ require 'rspec/matchers'
 require 'open3'
 
 module Particle
+  CACHE_DIR = File.join(Dir.getwd, '.cache')
+
   module Util
     class << self
       include RSpec::Matchers
@@ -48,6 +50,15 @@ module Particle
         stdout, stderr, status = Open3.capture3(cmd)
         raise "External command has finished with an error (exit code: #{status.exitstatus})\n#{stderr}" unless status.success?
         stdout.rstrip
+      end
+
+      def cache_dir(subdir)
+        path = CACHE_DIR
+        if subdir
+          path = File.join(path, subdir)
+        end
+        FileUtils.mkdir_p(path)
+        path
       end
 
       def env_var(name)

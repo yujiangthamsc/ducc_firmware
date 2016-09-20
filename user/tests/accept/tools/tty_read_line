@@ -11,7 +11,7 @@ usage() {
   exit 1
 }
 
-check_tool stty
+require_tool stty
 
 # Default parameters
 lines=1
