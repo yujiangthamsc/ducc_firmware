@@ -38,7 +38,8 @@
         (IO, "IO error", 1300), \
         (NETWORK, "Network error", 1400), \
         (PROTOCOL, "Protocol error", 1500), \
-        (INTERNAL, "Internal error", 1600)
+        (INTERNAL, "Internal error", 1600), \
+        (NO_MEMORY, "Memory allocation error", 1700)
 
 // Expands to enum values for all errors
 #define SYSTEM_ERROR_ENUM_VALUES(prefix) \

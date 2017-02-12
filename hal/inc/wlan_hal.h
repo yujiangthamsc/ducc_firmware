@@ -288,6 +288,30 @@ int wlan_get_credentials(wlan_scan_result_t callback, void* callback_data);
  */
 bool isWiFiPowersaveClockDisabled(void);
 
+// Bluetooth coexistence mode
+typedef enum WLanBtCoexMode {
+  WLAN_BT_COEX_MODE_DISABLED = 0, // Coexistence is disabled
+  WLAN_BT_COEX_MODE_TDM = 10, // Time Division Multiplexing (TDM)
+  WLAN_BT_COEX_MODE_TDM_PREEMPT = 20 // TDM with preemption
+} WLanBtCoexMode;
+
+// Bluetooth coexistence wiring scheme
+typedef enum WLanBtCoexWiring {
+  WLAN_BT_COEX_WIRING_DEFAULT = 0, // Default wiring scheme (FIXME)
+  WLAN_BT_COEX_WIRING_2 = 2, // 2 wires
+  WLAN_BT_COEX_WIRING_3 = 3 // 3 wires
+} WLanBtCoexWiring;
+
+// Bluetooth coexistence settings
+typedef struct WLanBtCoexConfig {
+    size_t size;
+    uint8_t mode;
+    uint8_t wiring;
+} WLanBtCoexConfig;
+
+int wlan_bt_coex_get_config(WLanBtCoexConfig* conf, void* reserved);
+int wlan_bt_coex_set_config(const WLanBtCoexConfig* conf, void* reserved);
+
 #ifdef	__cplusplus
 }
 #endif

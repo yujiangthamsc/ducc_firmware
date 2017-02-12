@@ -41,6 +41,8 @@
 #include "wwd_resources.h"
 #include "dct.h"
 #include "wwd_management.h"
+#include "wwd_buffer_interface.h"
+#include "system_error.h"
 
 LOG_SOURCE_CATEGORY("hal.wlan");
 
@@ -48,6 +50,49 @@ LOG_SOURCE_CATEGORY("hal.wlan");
 #define class clazz
 #include "dns.h"
 #undef class
+
+namespace {
+
+template<typename T>
+int getIoVar(const char* name, T* value) {
+    const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
+    wiced_buffer_t buffer;
+    wiced_buffer_t response;
+    const void* ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
+    if (!ptr) {
+        return SYSTEM_ERROR_NO_MEMORY;
+    }
+    const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_GET, buffer, &response, interface);
+    if (result != WWD_SUCCESS) {
+        return SYSTEM_ERROR_NOT_SUPPORTED;
+    }
+    ptr = host_buffer_get_current_piece_data_pointer(response);
+    memcpy(value, ptr, sizeof(T));
+    host_buffer_release(response, WWD_NETWORK_RX);
+    return 0;
+}
+
+template<typename T>
+int setIoVar(const char* name, const T& value) {
+    const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
+    wiced_buffer_t buffer;
+    void* const ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
+    if (!ptr) {
+        return SYSTEM_ERROR_NO_MEMORY;
+    }
+    memcpy(ptr, &value, sizeof(T));
+    const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_SET, buffer, nullptr, interface);
+    if (result != WWD_SUCCESS) {
+        if (result == WWD_WLAN_NOTDOWN) {
+            LOG(WARN, "=== NOT DOWN");
+            return SYSTEM_ERROR_INVALID_STATE;
+        }
+        return SYSTEM_ERROR_NOT_SUPPORTED;
+    }
+    return 0;
+}
+
+} // namespace
 
 /**
  * Retrieves the country code from the DCT region.
@@ -312,10 +357,25 @@ wlan_result_t wlan_activate()
 
 	wlan_initialize_dct();
     wlan_result_t result = wiced_wlan_connectivity_init();
-    if (!result)
+    if (result == 0) {
         wiced_network_register_link_callback(HAL_NET_notify_connected, HAL_NET_notify_disconnected,
-                                             WICED_STA_INTERFACE);
+                WICED_STA_INTERFACE);
+    }
     wlan_refresh_antenna();
+
+    // FIXME
+    wiced_network_down(WICED_STA_INTERFACE);
+    HAL_Delay_Milliseconds(2000); // !
+
+    // FIXME
+    WLanBtCoexConfig conf;
+    conf.size = sizeof(WLanBtCoexConfig);
+    conf.mode = WLAN_BT_COEX_MODE_TDM;
+    conf.wiring = WLAN_BT_COEX_WIRING_3;
+    if (wlan_bt_coex_set_config(&conf, nullptr) != 0) {
+        LOG(ERROR, "Unable to configure BT-coex");
+    }
+
     return result;
 }
 
@@ -852,4 +912,96 @@ int wlan_get_credentials(wlan_scan_result_t callback, void* callback_data)
         wiced_dct_read_unlock(wifi_config, WICED_FALSE);
     }
     return result < 0 ? result : count;
+}
+
+int wlan_bt_coex_get_config(WLanBtCoexConfig* conf, void* reserved) {
+    // Coexistence mode
+    uint32_t value = 0;
+    int result = getIoVar("btc_mode", &value);
+    if (result != 0) {
+        return result;
+    }
+    switch (value) {
+    case WL_BTC_DISABLE:
+        conf->mode = WLAN_BT_COEX_MODE_DISABLED;
+        break;
+    case WL_BTC_ENABLE:
+        conf->mode = WLAN_BT_COEX_MODE_TDM;
+        break;
+    case WL_BTC_PREMPT:
+        conf->mode = WLAN_BT_COEX_MODE_TDM_PREEMPT;
+        break;
+    default:
+        LOG(WARN, "Unrecognized BT-coex mode: %u", (unsigned)value);
+        return SYSTEM_ERROR_UNKNOWN;
+    }
+    if (conf->mode != WLAN_BT_COEX_MODE_DISABLED) {
+        // Wiring scheme
+        result = getIoVar("btc_wire", &value);
+        if (result != 0) {
+            return result;
+        }
+        switch (value) {
+        case WL_BTC_2WIRE:
+            conf->wiring = WLAN_BT_COEX_WIRING_2;
+            break;
+        case WL_BTC_3WIRE:
+            conf->wiring = WLAN_BT_COEX_WIRING_3;
+            break;
+        case WL_BTC_DEFWIRE:
+            conf->wiring = WLAN_BT_COEX_WIRING_DEFAULT;
+            break;
+        default:
+            LOG(WARN, "Unrecognized BT-coex wiring scheme: %u", (unsigned)value);
+            return SYSTEM_ERROR_UNKNOWN;
+        }
+    } else {
+        // Initialize settings to default values
+        conf->wiring = WLAN_BT_COEX_WIRING_DEFAULT;
+    }
+    return 0;
+}
+
+int wlan_bt_coex_set_config(const WLanBtCoexConfig* conf, void* reserved) {
+    uint32_t value = 0;
+    int result = 0;
+    // Coexistence mode
+    switch (conf->mode) {
+    case WLAN_BT_COEX_MODE_DISABLED:
+        value = WL_BTC_DISABLE;
+        break;
+    case WLAN_BT_COEX_MODE_TDM:
+        value = WL_BTC_ENABLE;
+        break;
+    case WLAN_BT_COEX_MODE_TDM_PREEMPT:
+        value = WL_BTC_PREMPT;
+        break;
+    default:
+        return SYSTEM_ERROR_UNKNOWN;
+    }
+    result = setIoVar("btc_mode", value);
+    if (result != 0) {
+        return result;
+    }
+    if (conf->mode != WLAN_BT_COEX_MODE_DISABLED) {
+        // Wiring scheme
+        switch (conf->wiring) {
+        case WLAN_BT_COEX_WIRING_2:
+            value = WL_BTC_2WIRE;
+            break;
+        case WLAN_BT_COEX_WIRING_3:
+            value = WL_BTC_3WIRE;
+            break;
+        case WLAN_BT_COEX_WIRING_DEFAULT:
+            value = WL_BTC_DEFWIRE;
+            break;
+        default:
+            return SYSTEM_ERROR_UNKNOWN;
+        }
+        result = setIoVar("btc_wire", value);
+        if (result != 0) {
+            return result;
+        }
+    }
+    return 0;
 }
