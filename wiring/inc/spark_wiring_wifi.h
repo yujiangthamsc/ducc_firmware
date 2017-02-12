@@ -47,6 +47,17 @@ enum SecurityType {
     WPA2 = WLAN_SEC_WPA2
 };
 
+enum BtCoexMode {
+    BT_COEX_MODE_DISABLED = WLAN_BT_COEX_MODE_DISABLED,
+    BT_COEX_MODE_TDM = WLAN_BT_COEX_MODE_TDM,
+    BT_COEX_MODE_TDM_PREEMPT = WLAN_BT_COEX_MODE_TDM_PREEMPT
+};
+
+enum BtCoexWiring {
+    BT_COEX_WIRING_2 = WLAN_BT_COEX_WIRING_2,
+    BT_COEX_WIRING_3 = WLAN_BT_COEX_WIRING_3
+};
+
 class WiFiClass : public NetworkClass
 {
     void setIPAddressSource(IPAddressSource source) {
@@ -227,6 +238,14 @@ public:
     }
 
     int getCredentials(WiFiAccessPoint* results, size_t result_count);
+
+    bool setBtCoexMode(BtCoexMode mode, BtCoexWiring wiring) {
+        WLanBtCoexConfig conf;
+        conf.size = sizeof(WLanBtCoexConfig);
+        conf.mode = (WLanBtCoexMode)mode;
+        conf.wiring = (WLanBtCoexWiring)wiring;
+        return (wlan_bt_coex_config(&conf, nullptr) == 0);
+    }
 };
 
 extern WiFiClass WiFi;

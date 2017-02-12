@@ -74,8 +74,7 @@ DYNALIB_FN(23, hal_wlan, wlan_scan, int(wlan_scan_result_t, void*))
 DYNALIB_FN(24, hal_wlan, wlan_get_credentials, int(wlan_scan_result_t, void*))
 DYNALIB_FN(25, hal_wlan,softap_set_application_page_handler, int(PageProvider* provider, void* reserved))
 
-DYNALIB_FN(26, hal_wlan, wlan_bt_coex_get_config, int(WLanBtCoexConfig*, void*))
-DYNALIB_FN(27, hal_wlan, wlan_bt_coex_set_config, int(const WLanBtCoexConfig*, void*))
+DYNALIB_FN(26, hal_wlan, wlan_bt_coex_config, int(const WLanBtCoexConfig*, void*))
 
 DYNALIB_END(hal_wlan)
 

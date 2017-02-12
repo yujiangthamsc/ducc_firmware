@@ -54,42 +54,109 @@ LOG_SOURCE_CATEGORY("hal.wlan");
 namespace {
 
 template<typename T>
-int getIoVar(const char* name, T* value) {
+bool getIoVar(const char* name, T* value) {
     const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
     wiced_buffer_t buffer;
     wiced_buffer_t response;
     const void* ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
     if (!ptr) {
-        return SYSTEM_ERROR_NO_MEMORY;
+        LOG(ERROR, "%s: Unable to allocate iovar buffer", name);
+        return false;
     }
     const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_GET, buffer, &response, interface);
     if (result != WWD_SUCCESS) {
-        return SYSTEM_ERROR_NOT_SUPPORTED;
+        LOG(ERROR, "%s: Unable to get iovar value (%d)", name, (int)result);
+        return false;
     }
     ptr = host_buffer_get_current_piece_data_pointer(response);
     memcpy(value, ptr, sizeof(T));
     host_buffer_release(response, WWD_NETWORK_RX);
-    return 0;
+    return true;
 }
 
 template<typename T>
-int setIoVar(const char* name, const T& value) {
+bool setIoVar(const char* name, const T& value) {
     const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
     wiced_buffer_t buffer;
     void* const ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
     if (!ptr) {
-        return SYSTEM_ERROR_NO_MEMORY;
+        LOG(ERROR, "%s: Unable to allocate iovar buffer", name);
+        return false;
     }
     memcpy(ptr, &value, sizeof(T));
     const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_SET, buffer, nullptr, interface);
     if (result != WWD_SUCCESS) {
-        if (result == WWD_WLAN_NOTDOWN) {
-            LOG(WARN, "=== NOT DOWN");
-            return SYSTEM_ERROR_INVALID_STATE;
-        }
-        return SYSTEM_ERROR_NOT_SUPPORTED;
+        LOG(ERROR, "%s: Unable to set iovar value (%d)", name, (int)result);
+        return false;
     }
-    return 0;
+    return true;
+}
+
+bool setBtCoexConfig(const WLanBtCoexConfig* conf) {
+    uint32_t val = 0;
+    // Coexistence mode
+    const auto mode = conf->mode;
+    switch (mode) {
+    case WLAN_BT_COEX_MODE_DEFAULT:
+        val = WL_BTC_DEFAULT;
+        break;
+    case WLAN_BT_COEX_MODE_DISABLED:
+        val = WL_BTC_DISABLE;
+        break;
+    case WLAN_BT_COEX_MODE_TDM:
+        val = WL_BTC_ENABLE;
+        break;
+    case WLAN_BT_COEX_MODE_TDM_PREEMPT:
+        val = WL_BTC_PREMPT;
+        break;
+    default:
+        return false;
+    }
+    if (!setIoVar("btc_mode", val)) {
+        return false;
+    }
+    // Wiring scheme
+    auto wiring = conf->wiring;
+    if (mode == WLAN_BT_COEX_MODE_DEFAULT || mode == WLAN_BT_COEX_MODE_DISABLED) {
+        wiring = WLAN_BT_COEX_WIRING_DEFAULT;
+    }
+    switch (wiring) {
+    case WLAN_BT_COEX_WIRING_DEFAULT:
+        val = WL_BTC_DEFWIRE;
+        break;
+    case WLAN_BT_COEX_WIRING_2:
+        val = WL_BTC_2WIRE;
+        break;
+    case WLAN_BT_COEX_WIRING_3:
+        val = WL_BTC_3WIRE;
+        break;
+    default:
+        return false;
+    }
+    if (!setIoVar("btc_wire", val)) {
+        return false;
+    }
+#ifdef DEBUG_BUILD
+    // Dump current iovar values
+    if (getIoVar("btc_mode", &val)) {
+        LOG_C(TRACE, "hal.wlan.coex", "btc_mode: %u", (unsigned)val);
+    }
+    if (getIoVar("btc_wire", &val)) {
+        LOG_C(TRACE, "hal.wlan.coex", "btc_wire: %u", (unsigned)val);
+    }
+#endif
+    return true;
+}
+
+// Returns current BT-coex configuration as set by an application
+WLanBtCoexConfig* currentBtCoexConfig() {
+    // TODO: Initialize from DCT?
+    static WLanBtCoexConfig conf = {
+        sizeof(WLanBtCoexConfig),
+        WLAN_BT_COEX_MODE_DEFAULT,
+        WLAN_BT_COEX_WIRING_DEFAULT
+    };
+    return &conf;
 }
 
 } // namespace
@@ -354,27 +421,27 @@ wlan_result_t wlan_activate()
 		wwd_set_wlan_sleep_clock_enabled(WICED_FALSE);
 	}
 #endif
-
 	wlan_initialize_dct();
+
     wlan_result_t result = wiced_wlan_connectivity_init();
     if (result == 0) {
-        wiced_network_register_link_callback(HAL_NET_notify_connected, HAL_NET_notify_disconnected,
-                WICED_STA_INTERFACE);
+        wiced_network_register_link_callback(HAL_NET_notify_connected, HAL_NET_notify_disconnected, WICED_STA_INTERFACE);
+
+        // Configure Bluetooth coexistence if necessary
+        WLanBtCoexConfig* btCoex = currentBtCoexConfig();
+        if (btCoex->mode != WLAN_BT_COEX_MODE_DEFAULT) {
+            // For some reason, setting of the iovars related to BT-coex fails with WWD_WLAN_NOTDOWN
+            // error if attempted right after calling wiced_wlan_connectivity_init(), even though the
+            // network doesn't seem to be up according to the WICED flags.
+            //
+            // As a workaround, we use a delay after WLAN initialization. It was determined experimentally
+            // that waiting for at least 1 second allows BT-coex iovars to be set successfully
+            HAL_Delay_Milliseconds(1500);
+            setBtCoexConfig(btCoex);
+        }
     }
+
     wlan_refresh_antenna();
-
-    // FIXME
-    wiced_network_down(WICED_STA_INTERFACE);
-    HAL_Delay_Milliseconds(2000); // !
-
-    // FIXME
-    WLanBtCoexConfig conf;
-    conf.size = sizeof(WLanBtCoexConfig);
-    conf.mode = WLAN_BT_COEX_MODE_TDM;
-    conf.wiring = WLAN_BT_COEX_WIRING_3;
-    if (wlan_bt_coex_set_config(&conf, nullptr) != 0) {
-        LOG(ERROR, "Unable to configure BT-coex");
-    }
 
     return result;
 }
@@ -914,94 +981,9 @@ int wlan_get_credentials(wlan_scan_result_t callback, void* callback_data)
     return result < 0 ? result : count;
 }
 
-int wlan_bt_coex_get_config(WLanBtCoexConfig* conf, void* reserved) {
-    // Coexistence mode
-    uint32_t value = 0;
-    int result = getIoVar("btc_mode", &value);
-    if (result != 0) {
-        return result;
-    }
-    switch (value) {
-    case WL_BTC_DISABLE:
-        conf->mode = WLAN_BT_COEX_MODE_DISABLED;
-        break;
-    case WL_BTC_ENABLE:
-        conf->mode = WLAN_BT_COEX_MODE_TDM;
-        break;
-    case WL_BTC_PREMPT:
-        conf->mode = WLAN_BT_COEX_MODE_TDM_PREEMPT;
-        break;
-    default:
-        LOG(WARN, "Unrecognized BT-coex mode: %u", (unsigned)value);
-        return SYSTEM_ERROR_UNKNOWN;
-    }
-    if (conf->mode != WLAN_BT_COEX_MODE_DISABLED) {
-        // Wiring scheme
-        result = getIoVar("btc_wire", &value);
-        if (result != 0) {
-            return result;
-        }
-        switch (value) {
-        case WL_BTC_2WIRE:
-            conf->wiring = WLAN_BT_COEX_WIRING_2;
-            break;
-        case WL_BTC_3WIRE:
-            conf->wiring = WLAN_BT_COEX_WIRING_3;
-            break;
-        case WL_BTC_DEFWIRE:
-            conf->wiring = WLAN_BT_COEX_WIRING_DEFAULT;
-            break;
-        default:
-            LOG(WARN, "Unrecognized BT-coex wiring scheme: %u", (unsigned)value);
-            return SYSTEM_ERROR_UNKNOWN;
-        }
-    } else {
-        // Initialize settings to default values
-        conf->wiring = WLAN_BT_COEX_WIRING_DEFAULT;
-    }
-    return 0;
-}
-
-int wlan_bt_coex_set_config(const WLanBtCoexConfig* conf, void* reserved) {
-    uint32_t value = 0;
-    int result = 0;
-    // Coexistence mode
-    switch (conf->mode) {
-    case WLAN_BT_COEX_MODE_DISABLED:
-        value = WL_BTC_DISABLE;
-        break;
-    case WLAN_BT_COEX_MODE_TDM:
-        value = WL_BTC_ENABLE;
-        break;
-    case WLAN_BT_COEX_MODE_TDM_PREEMPT:
-        value = WL_BTC_PREMPT;
-        break;
-    default:
-        return SYSTEM_ERROR_UNKNOWN;
-    }
-    result = setIoVar("btc_mode", value);
-    if (result != 0) {
-        return result;
-    }
-    if (conf->mode != WLAN_BT_COEX_MODE_DISABLED) {
-        // Wiring scheme
-        switch (conf->wiring) {
-        case WLAN_BT_COEX_WIRING_2:
-            value = WL_BTC_2WIRE;
-            break;
-        case WLAN_BT_COEX_WIRING_3:
-            value = WL_BTC_3WIRE;
-            break;
-        case WLAN_BT_COEX_WIRING_DEFAULT:
-            value = WL_BTC_DEFWIRE;
-            break;
-        default:
-            return SYSTEM_ERROR_UNKNOWN;
-        }
-        result = setIoVar("btc_wire", value);
-        if (result != 0) {
-            return result;
-        }
-    }
+int wlan_bt_coex_config(const WLanBtCoexConfig* conf, void* reserved) {
+    WLanBtCoexConfig* c = currentBtCoexConfig();
+    c->mode = conf->mode;
+    c->wiring = conf->wiring;
     return 0;
 }
