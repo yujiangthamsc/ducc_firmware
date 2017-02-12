@@ -47,6 +47,7 @@ enum SecurityType {
     WPA2 = WLAN_SEC_WPA2
 };
 
+#if Wiring_BtCoex
 enum BtCoexMode {
     BT_COEX_MODE_DISABLED = WLAN_BT_COEX_MODE_DISABLED,
     BT_COEX_MODE_TDM = WLAN_BT_COEX_MODE_TDM,
@@ -57,6 +58,7 @@ enum BtCoexWiring {
     BT_COEX_WIRING_2 = WLAN_BT_COEX_WIRING_2,
     BT_COEX_WIRING_3 = WLAN_BT_COEX_WIRING_3
 };
+#endif
 
 class WiFiClass : public NetworkClass
 {
@@ -239,13 +241,26 @@ public:
 
     int getCredentials(WiFiAccessPoint* results, size_t result_count);
 
+#if Wiring_BtCoex
+    bool setBtCoexMode(BtCoexMode mode) {
+        return setBtCoexMode((WLanBtCoexMode)mode, WLAN_BT_COEX_WIRING_DEFAULT);
+    }
+
     bool setBtCoexMode(BtCoexMode mode, BtCoexWiring wiring) {
+        return setBtCoexMode((WLanBtCoexMode)mode, (WLanBtCoexWiring)wiring);
+    }
+#endif
+
+private:
+#if Wiring_BtCoex
+    bool setBtCoexMode(WLanBtCoexMode mode, WLanBtCoexWiring wiring) {
         WLanBtCoexConfig conf;
         conf.size = sizeof(WLanBtCoexConfig);
-        conf.mode = (WLanBtCoexMode)mode;
-        conf.wiring = (WLanBtCoexWiring)wiring;
+        conf.mode = mode;
+        conf.wiring = wiring;
         return (wlan_bt_coex_config(&conf, nullptr) == 0);
     }
+#endif
 };
 
 extern WiFiClass WiFi;

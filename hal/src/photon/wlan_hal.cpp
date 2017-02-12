@@ -421,6 +421,7 @@ wlan_result_t wlan_activate()
 		wwd_set_wlan_sleep_clock_enabled(WICED_FALSE);
 	}
 #endif
+
 	wlan_initialize_dct();
 
     wlan_result_t result = wiced_wlan_connectivity_init();
@@ -428,7 +429,7 @@ wlan_result_t wlan_activate()
         wiced_network_register_link_callback(HAL_NET_notify_connected, HAL_NET_notify_disconnected, WICED_STA_INTERFACE);
 
         // Configure Bluetooth coexistence if necessary
-        WLanBtCoexConfig* btCoex = currentBtCoexConfig();
+        WLanBtCoexConfig* const btCoex = currentBtCoexConfig();
         if (btCoex->mode != WLAN_BT_COEX_MODE_DEFAULT) {
             // For some reason, setting of the iovars related to BT-coex fails with WWD_WLAN_NOTDOWN
             // error if attempted right after calling wiced_wlan_connectivity_init(), even though the
@@ -438,6 +439,9 @@ wlan_result_t wlan_activate()
             // that waiting for at least 1 second allows BT-coex iovars to be set successfully
             HAL_Delay_Milliseconds(1500);
             setBtCoexConfig(btCoex);
+
+            // Next time, update iovars only if BT-coex configuration has changed
+            btCoex->mode = WLAN_BT_COEX_MODE_DEFAULT;
         }
     }
 
