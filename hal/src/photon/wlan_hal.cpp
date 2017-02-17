@@ -33,6 +33,7 @@
 #include <string.h>
 #include <algorithm>
 #include "wlan_internal.h"
+#include "wlan_ioctl.h"
 #include "socket_internal.h"
 #include "wwd_sdpcm.h"
 #include "delay_hal.h"
@@ -41,8 +42,6 @@
 #include "wwd_resources.h"
 #include "dct.h"
 #include "wwd_management.h"
-#include "wwd_buffer_interface.h"
-#include "system_error.h"
 
 LOG_SOURCE_CATEGORY("hal.wlan");
 
@@ -53,44 +52,73 @@ LOG_SOURCE_CATEGORY("hal.wlan");
 
 namespace {
 
-template<typename T>
-bool getIoVar(const char* name, T* value) {
-    const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
-    wiced_buffer_t buffer;
-    wiced_buffer_t response;
-    const void* ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
-    if (!ptr) {
-        LOG(ERROR, "%s: Unable to allocate iovar buffer", name);
-        return false;
-    }
-    const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_GET, buffer, &response, interface);
-    if (result != WWD_SUCCESS) {
-        LOG(ERROR, "%s: Unable to get iovar value (%d)", name, (int)result);
-        return false;
-    }
-    ptr = host_buffer_get_current_piece_data_pointer(response);
-    memcpy(value, ptr, sizeof(T));
-    host_buffer_release(response, WWD_NETWORK_RX);
-    return true;
-}
+using namespace particle;
 
-template<typename T>
-bool setIoVar(const char* name, const T& value) {
-    const wwd_interface_t interface = WWD_STA_INTERFACE; // TODO: WWD_AP_INTERFACE
-    wiced_buffer_t buffer;
-    void* const ptr = wwd_sdpcm_get_iovar_buffer(&buffer, sizeof(T), name);
-    if (!ptr) {
-        LOG(ERROR, "%s: Unable to allocate iovar buffer", name);
-        return false;
+#ifdef DEBUG_BUILD
+// Structure storing hardware and software revision info (taken from WICED's wl_test library)
+typedef struct wlc_rev_info {
+    uint32_t vendorid; // PCI vendor id
+    uint32_t deviceid; // device id of chip
+    uint32_t radiorev; // radio revision
+    uint32_t chiprev; // chip revision
+    uint32_t corerev; // core revision
+    uint32_t boardid; // board identifier (usu. PCI sub-device id)
+    uint32_t boardvendor; // board vendor (usu. PCI sub-vendor id)
+    uint32_t boardrev; // board revision
+    uint32_t driverrev; // driver version
+    uint32_t ucoderev; // microcode version
+    uint32_t bus; // bus type
+    uint32_t chipnum; // chip number
+    uint32_t phytype; // phy type
+    uint32_t phyrev; // phy revision
+    uint32_t anarev; // anacore rev
+    uint32_t chippkg; // chip package info
+} wlc_rev_info_t;
+
+void dumpVersionInfo() {
+    LOG_CATEGORY("hal.wlan.ver");
+
+    // Version string
+    char verStr[128] = { 0 };
+    if (!getIovar("ver", verStr, sizeof(verStr) - 1)) { // Reserve 1 byte for term. null
+        return;
     }
-    memcpy(ptr, &value, sizeof(T));
-    const wwd_result_t result = wwd_sdpcm_send_iovar(SDPCM_SET, buffer, nullptr, interface);
-    if (result != WWD_SUCCESS) {
-        LOG(ERROR, "%s: Unable to set iovar value (%d)", name, (int)result);
-        return false;
+    LOG_PRINT(TRACE, "WLAN firmware version:\r\n");
+    LOG_PRINT(TRACE, verStr);
+    LOG_PRINT(TRACE, "\r\n");
+
+    // Hardware info
+    wlc_rev_info info = { 0 };
+    if (!getIoctl(WLC_GET_REVINFO, &info, sizeof(info))) {
+        return;
     }
-    return true;
+    LOG_PRINT(TRACE, "WLAN revision info:\r\n");
+    LOG_PRINTF(TRACE, "vendorid: 0x%x\r\n", (unsigned)info.vendorid);
+    LOG_PRINTF(TRACE, "deviceid: 0x%x\r\n", (unsigned)info.deviceid);
+    LOG_PRINTF(TRACE, "radiorev: 0x%x\r\n", (unsigned)info.radiorev);
+    LOG_PRINTF(TRACE, "chipnum: 0x%x\r\n", (unsigned)info.chipnum);
+    LOG_PRINTF(TRACE, "chiprev: 0x%x\r\n", (unsigned)info.chiprev);
+    LOG_PRINTF(TRACE, "chippackage: 0x%x\r\n", (unsigned)info.chippkg);
+    LOG_PRINTF(TRACE, "corerev: 0x%x\r\n", (unsigned)info.corerev);
+    LOG_PRINTF(TRACE, "boardid: 0x%x\r\n", (unsigned)info.boardid);
+    LOG_PRINTF(TRACE, "boardvendor: 0x%x\r\n", (unsigned)info.boardvendor);
+
+    // Produce a human-readable string for wlc_rev_info::boardrev
+    const uint32_t brev = info.boardrev;
+    if (brev < 0x100) {
+        LOG_PRINTF(TRACE, "boardrev: %d.%d\r\n", (int)((brev & 0xf0) >> 4), (int)(brev & 0xf));
+    } else {
+        LOG_PRINTF(TRACE, "boardrev: %c%03x\r\n", ((brev & 0xf000) == 0x1000) ? 'P' : 'A', (int)(brev & 0xfff));
+    }
+
+    LOG_PRINTF(TRACE, "driverrev: 0x%x\r\n", (unsigned)info.driverrev);
+    LOG_PRINTF(TRACE, "ucoderev: 0x%x\r\n", (unsigned)info.ucoderev);
+    LOG_PRINTF(TRACE, "bus: 0x%x\r\n", (unsigned)info.bus);
+    LOG_PRINTF(TRACE, "phytype: 0x%x\r\n", (unsigned)info.phytype);
+    LOG_PRINTF(TRACE, "phyrev: 0x%x\r\n", (unsigned)info.phyrev);
+    LOG_PRINTF(TRACE, "anarev: 0x%x\r\n", (unsigned)info.anarev);
 }
+#endif // defined(DEBUG_BUILD)
 
 bool setBtCoexConfig(const WLanBtCoexConfig* conf) {
     uint32_t val = 0;
@@ -112,7 +140,7 @@ bool setBtCoexConfig(const WLanBtCoexConfig* conf) {
     default:
         return false;
     }
-    if (!setIoVar("btc_mode", val)) {
+    if (!setIovar("btc_mode", val)) {
         return false;
     }
     // Wiring scheme
@@ -133,16 +161,16 @@ bool setBtCoexConfig(const WLanBtCoexConfig* conf) {
     default:
         return false;
     }
-    if (!setIoVar("btc_wire", val)) {
+    if (!setIovar("btc_wire", val)) {
         return false;
     }
 #ifdef DEBUG_BUILD
     // Dump current iovar values
-    if (getIoVar("btc_mode", &val)) {
-        LOG_C(TRACE, "hal.wlan.coex", "btc_mode: %u", (unsigned)val);
+    if (getIovar("btc_mode", &val)) {
+        LOG(TRACE, "btc_mode: %u", (unsigned)val);
     }
-    if (getIoVar("btc_wire", &val)) {
-        LOG_C(TRACE, "hal.wlan.coex", "btc_wire: %u", (unsigned)val);
+    if (getIovar("btc_wire", &val)) {
+        LOG(TRACE, "btc_wire: %u", (unsigned)val);
     }
 #endif
     return true;
@@ -428,6 +456,14 @@ wlan_result_t wlan_activate()
     if (result == 0) {
         wiced_network_register_link_callback(HAL_NET_notify_connected, HAL_NET_notify_disconnected, WICED_STA_INTERFACE);
 
+#ifdef DEBUG_BUILD
+        // Dump firmware and hardware version info
+        static bool dumpVerInfo = true;
+        if (dumpVerInfo) {
+            dumpVerInfo = false;
+            dumpVersionInfo();
+        }
+#endif
         // Configure Bluetooth coexistence if necessary
         WLanBtCoexConfig* const btCoex = currentBtCoexConfig();
         if (btCoex->mode != WLAN_BT_COEX_MODE_DEFAULT) {
