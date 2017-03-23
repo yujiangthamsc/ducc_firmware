@@ -15,8 +15,8 @@ PRODUCT_ID(PLATFORM_ID);
 PRODUCT_VERSION(3);
 
 /* Constants -----------------------------------------------------------------*/
-const int BAUDRATE = 115200;
-const int BLUELED = D7;
+int BAUDRATE = 9600;
+int BLUELED = D7;
 
 /* Function prototypes -------------------------------------------------------*/
 #if Wiring_WiFi
@@ -44,6 +44,6 @@ void loop()
     Serial1.println("Toast");
     digitalWrite(BLUELED, HIGH);
     delay(50);
-    digitalWrite(BLUELED, LOW);
-    delay(50);
+    // digitalWrite(BLUELED, LOW);
+    // delay(50);
 }
