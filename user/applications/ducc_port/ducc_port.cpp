@@ -10,7 +10,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "application.h"
 #include "stdarg.h"
-#include "boost/circular_buffer.hpp"
+// #include "boost/circular_buffer.hpp"
+#include "RingBufCPP/RingBufCPP.h"
 
 PRODUCT_ID(PLATFORM_ID);
 PRODUCT_VERSION(2);
@@ -18,7 +19,7 @@ PRODUCT_VERSION(2);
 /* Constants -----------------------------------------------------------------*/
 const int BAUDRATE =            115200;
 
-const int TX_BUFFER_SIZE =      1024;
+const int TX_BUFFER_SIZE =      128;
 const int RX_BUFFER_SIZE =      1024;
 
 const int TX_CONTROL =          D0;
@@ -47,9 +48,11 @@ enum CableMode {
   MODE_RST_TO_CHG
 };
 
-/* Globals Variables ---------------------------------------------------------*/
-boost::circular_buffer<char> mTxFifo(TX_BUFFER_SIZE);
-boost::circular_buffer<char> mRxFifo(RX_BUFFER_SIZE);
+/* Global Variables ----------------------------------------------------------*/
+// char mTxFifo[TX_BUFFER_SIZE];
+// boost::circular_buffer<char> mRxFifo(RX_BUFFER_SIZE);
+RingBufCPP<char, TX_BUFFER_SIZE> mTxFifo;
+RingBufCPP<char, RX_BUFFER_SIZE> mRxFifo;
 
 CableMode mCurrentMode;
 unsigned long long mStartCycleTime;
@@ -60,7 +63,6 @@ bool mConfiguring = false;
 bool mTransmitting = false;
 bool mReadyToSend = false;
 bool mReadyToReceive = false;
-int mRxBytesToSend = 0;
 
 /* Function prototypes -------------------------------------------------------*/
 SYSTEM_MODE(MANUAL);
@@ -121,7 +123,6 @@ void configureRxMode() {
 
   mCurrentMode = MODE_RX;
   mStartCycleTime = mCurrentTime;
-  mRxBytesToSend = 0;
   mConfiguring = false;
 }
 
@@ -178,9 +179,10 @@ void loop()
   mCurrentTime = millis();
 
   while (Serial.available() > 0) {
+    // Add input to the FIFO and local output when user types a character
     char txChar = Serial.read();
     Serial.write(txChar);
-    mTxFifo.push_back(txChar);
+    mTxFifo.add(txChar);
 
     // Check for special characters
   }
@@ -196,9 +198,9 @@ void loop()
       }
 
       if (mReadyToReceive) {
-        while(mRxFifo.size() != 0) {
-          char rxChar = mRxFifo.front();
-          mRxFifo.pop_front();
+        while(!mRxFifo.isEmpty()) {
+          char rxChar;
+          mRxFifo.pull(&rxChar);
           Serial.write(rxChar);
         }
       }
@@ -233,8 +235,8 @@ void loop()
         mTransmitting = true;
         char rxChar = Serial1.read();
         if (rxChar != NULL_CHAR) {
-          mRxFifo.push_back(rxChar);
-          if (mRxFifo.size() == RX_BUFFER_SIZE) {
+          mRxFifo.add(rxChar);
+          if (mRxFifo.isFull()) {
             // Rx buffer is full, stop grabbing data from the Serial
             break;
           }
@@ -263,9 +265,9 @@ void loop()
         break;
       }
       if (mReadyToSend) {
-        while(mTxFifo.size() != 0) {
-          char txChar = mTxFifo.front();
-          mTxFifo.pop_front();
+        while(!mTxFifo.isEmpty()) {
+          char txChar;
+          mTxFifo.pull(&txChar);
           Serial1.write(txChar);
         }
         mReadyToSend = false;

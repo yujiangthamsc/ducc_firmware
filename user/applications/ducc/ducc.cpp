@@ -10,7 +10,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "application.h"
 #include "stdarg.h"
-#include "boost/circular_buffer.hpp"
+// #include "boost/circular_buffer.hpp"
+#include "RingBufCPP/RingBufCPP.h"
 
 PRODUCT_ID(PLATFORM_ID);
 PRODUCT_VERSION(2);
@@ -18,8 +19,8 @@ PRODUCT_VERSION(2);
 /* Constants -----------------------------------------------------------------*/
 const int BAUDRATE =            115200;
 
-const int TX_BUFFER_SIZE =      1024;
-const int RX_BUFFER_SIZE =      1024;
+const int TX_BUFFER_SIZE =      64;
+const int RX_BUFFER_SIZE =      64;
 
 const int TX_CONTROL =          D0;
 const int RX_CONTROL =          D1;
@@ -46,9 +47,16 @@ typedef enum {
   MODE_RST_TO_CHG
 } CABLE_MODE_t;
 
-/* Globals Variables ---------------------------------------------------------*/
-boost::circular_buffer<char> mTxFifo(TX_BUFFER_SIZE);
-boost::circular_buffer<char> mRxFifo(RX_BUFFER_SIZE);
+/* Global Variables ----------------------------------------------------------*/
+RingBufCPP<char, 64> mTxFifo;
+RingBufCPP<char, 64> mRxFifo;
+// boost::circular_buffer<char> mTxFifo(64);
+// boost::circular_buffer<char> mRxFifo(64);
+// mTxFifo->set_capacity(64);
+// boost::circular_buffer<char> mRxFifo(RX_BUFFER_SIZE);
+// boost::circular_buffer<char> mRxFifo;
+// Fifo mTxFifo(TX_BUFFER_SIZE);
+// Fifo mRxFifo(RX_BUFFER_SIZE);
 
 /* Function prototypes -------------------------------------------------------*/
 SYSTEM_MODE(MANUAL);
@@ -59,6 +67,10 @@ void setup()
   // Serial port setup
   Serial.begin(BAUDRATE);   // USB serial port to computer
   Serial1.begin(BAUDRATE);  // Serial to charge cable
+
+  // Setup FIFO
+  // mTxFifo.set_capacity(TX_BUFFER_SIZE);
+  // mRxFifo.set_capacity(RX_BUFFER_SIZE);
 
   // Relay control pins
   pinMode(TX_CONTROL, OUTPUT);
@@ -78,18 +90,25 @@ void loop()
     char c = Serial.read();
     Serial.write(c);
     // Serial1.write(c);
-    mTxFifo.push_back(c);
+    mTxFifo.add(c);
   }
 
-  // if (Serial1.available()) {
-  //   char c = Serial1.read();
-  //   Serial1.write(c);
-  //   Serial.write(c);
-  // }
-
-  if (mTxFifo.size() != 0) {
-    char c = mTxFifo.front();
-    mTxFifo.pop_front();
+  if (Serial1.available()) {
+    char c = Serial1.read();
     Serial1.write(c);
+    // Serial.write(c);
+    mRxFifo.add(c);
+  }
+
+  if (!mTxFifo.isEmpty()) {
+    char c;
+    mTxFifo.pull(&c);
+    Serial1.write(c);
+  }
+
+  if (!mRxFifo.isEmpty()) {
+    char c;
+    mRxFifo.pull(&c);
+    Serial.write(c);
   }
 }
