@@ -17,7 +17,8 @@ PRODUCT_ID(PLATFORM_ID);
 PRODUCT_VERSION(2);
 
 /* Constants -----------------------------------------------------------------*/
-const int BAUDRATE =            115200;
+const int USB_BAUDRATE =        115200;
+const int DUT_BAUDRATE =        28800;
 
 const int TX_BUFFER_SIZE =      128;
 const int RX_BUFFER_SIZE =      1024;
@@ -72,8 +73,8 @@ void configureChgMode();
 void setup()
 {
   // Serial port setup
-  Serial.begin(BAUDRATE);   // USB serial port to computer
-  Serial1.begin(BAUDRATE);  // Serial to charge cable
+  Serial.begin(USB_BAUDRATE);   // USB serial port to computer
+  Serial1.begin(DUT_BAUDRATE);  // Serial to charge cable
 
   // Relay control pins
   pinMode(TX_CONTROL, OUTPUT);
@@ -119,7 +120,7 @@ void configureChgToRxMode() {
 void configureRxMode() {
   mConfiguring = true;
   delay(6); // Capacitor discharge delay
-  Serial1.begin(BAUDRATE);
+  Serial1.begin(DUT_BAUDRATE);
 
   mCurrentMode = MODE_RX;
   mStartCycleTime = mCurrentTime;
@@ -141,7 +142,7 @@ void configureRxToTxMode() {
 
 void configureTxMode() {
   mConfiguring = true;
-  Serial1.begin(BAUDRATE);
+  Serial1.begin(DUT_BAUDRATE);
   delay(60);  // Guard delay
 
   mCurrentMode = MODE_TX;
@@ -159,7 +160,7 @@ void configureTxToChgMode() {
 
 void resetToChgMode() {
   mConfiguring = true;
-  Serial1.begin(BAUDRATE);
+  Serial1.begin(DUT_BAUDRATE);
   delay(2);
   Serial1.end();
   digitalWrite(CHG_LED, LOW);
