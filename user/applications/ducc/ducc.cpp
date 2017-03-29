@@ -17,7 +17,7 @@ PRODUCT_VERSION(2);
 
 /* Constants -----------------------------------------------------------------*/
 const int USB_BAUDRATE =        115200;
-const int DUT_BAUDRATE =        28800;
+const int DUT_BAUDRATE =        115200;
 
 const int TX_BUFFER_SIZE =      128;
 const int RX_BUFFER_SIZE =      1024;
