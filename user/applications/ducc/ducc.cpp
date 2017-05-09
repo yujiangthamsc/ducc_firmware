@@ -17,7 +17,7 @@ PRODUCT_VERSION(2);
 
 /* Constants -----------------------------------------------------------------*/
 const int USB_BAUDRATE =        115200;
-const int DUT_BAUDRATE =        115200;
+const int DUT_BAUDRATE =        57600;
 
 const int TX_BUFFER_SIZE =      128;
 const int RX_BUFFER_SIZE =      1024;
@@ -28,11 +28,14 @@ const int CHG_CONTROL =         D2;
 const int CHG_LED =             D7;
 const int UART_RX =             RX;
 
-const int CHG_MODE_MS =         200;
+const int CAP_DISCHARGE_MS =    40;
+const int TX_GUARD_DELAY_MS =   30;
+
+const int CHG_MODE_MS =         300;
 const int CHG_TO_RX_MODE_MS =   250;
-const int RX_MODE_MS =          430;
+const int RX_MODE_MS =          330 - CAP_DISCHARGE_MS;
 const int RX_TO_TX_MODE_MS =    1;
-const int TX_MODE_MS =          150;
+const int TX_MODE_MS =          100;
 const int TX_TO_CHG_MODE_MS =   10;
 const int RST_TO_CHG_MODE_MS =  341;
 
@@ -57,9 +60,9 @@ RingBufCPP<char, TX_BUFFER_SIZE> mTxFifo;
 RingBufCPP<char, RX_BUFFER_SIZE> mRxFifo;
 
 CableMode mCurrentMode;
-unsigned long long mStartCycleTime;
-unsigned long long mCurrentTime;
-unsigned long long mInterruptTime;
+unsigned long mStartCycleTime;
+unsigned long mCurrentTime;
+unsigned long mInterruptTime;
 
 bool mConfiguring = false;
 bool mTransmitting = false;
@@ -73,6 +76,9 @@ void configureChgMode();
 /* This function is called once at start up ----------------------------------*/
 void setup()
 {
+  // Disable WifFi since we don't use it
+  WiFi.off();
+
   // Serial port setup
   Serial.begin(USB_BAUDRATE);   // USB serial port to computer
   Serial1.begin(DUT_BAUDRATE);  // Serial to charge cable
@@ -110,6 +116,7 @@ void configureChgToRxMode() {
   digitalWrite(CHG_LED, LOW);
   digitalWrite(CHG_CONTROL, LOW);
   digitalWrite(TX_CONTROL, LOW);
+  delay(1);
   digitalWrite(RX_CONTROL, HIGH);
   pinMode(UART_RX, INPUT_PULLUP);
 
@@ -120,7 +127,7 @@ void configureChgToRxMode() {
 
 void configureRxMode() {
   mConfiguring = true;
-  delay(6); // Capacitor discharge delay
+  delay(CAP_DISCHARGE_MS); // Capacitor discharge delay
   Serial1.begin(DUT_BAUDRATE);
 
   mCurrentMode = MODE_RX;
@@ -134,6 +141,7 @@ void configureRxToTxMode() {
   digitalWrite(CHG_LED, LOW);
   digitalWrite(CHG_CONTROL, LOW);
   digitalWrite(RX_CONTROL, LOW);
+  delay(1);
   digitalWrite(TX_CONTROL, HIGH);
 
   mCurrentMode = MODE_RX_TO_TX;
@@ -144,7 +152,7 @@ void configureRxToTxMode() {
 void configureTxMode() {
   mConfiguring = true;
   Serial1.begin(DUT_BAUDRATE);
-  delay(60);  // Guard delay
+  delay(TX_GUARD_DELAY_MS);  // Guard delay
 
   mCurrentMode = MODE_TX;
   mStartCycleTime = mCurrentTime;
@@ -154,6 +162,7 @@ void configureTxMode() {
 
 void configureTxToChgMode() {
   mConfiguring = true;
+  Serial1.end();
   mCurrentMode = MODE_TX_TO_CHG;
   mStartCycleTime = mCurrentTime;
   mConfiguring = false;
@@ -161,8 +170,6 @@ void configureTxToChgMode() {
 
 void resetToChgMode() {
   mConfiguring = true;
-  Serial1.begin(DUT_BAUDRATE);
-  delay(2);
   Serial1.end();
   digitalWrite(CHG_LED, LOW);
   digitalWrite(TX_CONTROL, LOW);
@@ -183,13 +190,13 @@ void loop()
   while (Serial.available() > 0) {
     // Add input to the FIFO and local output when user types a character
     char txChar = Serial.read();
-    Serial.write(txChar);
+    // Serial.write(txChar);
     mTxFifo.add(txChar);
 
-    // Check for special characters
-    if (txChar == DEL_CHAR || txChar == BKSP_CHAR) {
-      Serial.write("\x1b[D\x1b[P"); // This is the escape sequence for DEL.
-    }
+    // // Check for special characters
+    // if (txChar == DEL_CHAR || txChar == BKSP_CHAR) {
+    //   Serial.write("\x1b[D\x1b[P"); // This is the escape sequence for DEL.
+    // }
   }
 
   if (mConfiguring) return;
@@ -221,6 +228,7 @@ void loop()
         resetToChgMode();
         break;
       }
+
       if (digitalRead(UART_RX) == LOW) {
         configureRxMode();
         break;
@@ -240,11 +248,12 @@ void loop()
         mTransmitting = true;
         char rxChar = Serial1.read();
         if (rxChar != NULL_CHAR) {
-          mRxFifo.add(rxChar);
-          if (mRxFifo.isFull()) {
-            // Rx buffer is full, stop grabbing data from the Serial
-            break;
-          }
+          // mRxFifo.add(rxChar);
+          // if (mRxFifo.isFull()) {
+          //   // Rx buffer is full, stop grabbing data from the Serial
+          //   break;
+          // }
+          Serial.write(rxChar);
           mReadyToReceive = true;
         }
       }
