@@ -29,7 +29,6 @@ const int TX_CONTROL =          D0;
 const int RX_CONTROL =          D1;
 const int CHG_CONTROL =         D2;
 const int CHG_LED =             D7;
-const int UART_TX =             TX;
 const int UART_RX =             RX;
 
 // Pins for timing debug
@@ -38,17 +37,17 @@ const int SCOPE_RX_MODE =       D5;
 const int SCOPE_CHG_MODE =      D6;
 
 // Internal delays
-const int TX_GUARD_DELAY_MS =   10;
-const int RX_GUARD_DELAY_MS =   20;
+const int RX_GUARD_DELAY_MS =   5;
+const int TX_GUARD_DELAY_MS =   20;
 
 // Mode timing
 const int CHG_MODE_MS =         300;
-const int CHG_TO_TX_MODE_MS =   250;  // Max timeout time to wait for pull-down
-const int TX_MODE_MS =          100 - RX_GUARD_DELAY_MS;
-const int TX_TO_RX_MODE_MS =    1;
-const int RX_MODE_MS =          250;
-const int RX_TO_CHG_MODE_MS =   30;
-const int RST_TO_CHG_MODE_MS =  50;
+const int CHG_TO_RX_MODE_MS =   250;  // Max timeout time to wait for pull-down
+const int RX_MODE_MS =          250 - RX_GUARD_DELAY_MS;
+const int RX_TO_TX_MODE_MS =    1;
+const int TX_MODE_MS =          90;
+const int TX_TO_CHG_MODE_MS =   30;
+const int RST_TO_CHG_MODE_MS =  100;
 
 // Characters
 const char NULL_CHAR =          0x00;
@@ -57,11 +56,11 @@ const char BKSP_CHAR =          0x08;
 
 enum CableMode {
   MODE_CHG,
-  MODE_CHG_TO_TX,
-  MODE_TX,
-  MODE_TX_TO_RX,
+  MODE_CHG_TO_RX,
   MODE_RX,
-  MODE_RX_TO_CHG,
+  MODE_RX_TO_TX,
+  MODE_TX,
+  MODE_TX_TO_CHG,
   MODE_RST_TO_CHG
 };
 
@@ -131,29 +130,58 @@ void configureChgMode() {
   mConfiguring = false;
 }
 
-void configureChgToTxMode() {
+void configureChgToRxMode() {
   mConfiguring = true;
   digitalWrite(SCOPE_CHG_MODE, LOW);
 
   digitalWrite(CHG_CONTROL, LOW);
   digitalWrite(TX_CONTROL, LOW);
+  // delay(1);
   digitalWrite(RX_CONTROL, HIGH);
   pinMode(UART_RX, INPUT_PULLUP);
 
-  mCurrentMode = MODE_CHG_TO_TX;
+  mCurrentMode = MODE_CHG_TO_RX;
+  mStartCycleTime = mCurrentTime;
+  mConfiguring = false;
+}
+
+void configureRxMode() {
+  mConfiguring = true;
+  // digitalWrite(SCOPE_RX_MODE, HIGH);
+
+  RGB.color(0,255,0);
+  delay(RX_GUARD_DELAY_MS); // Capacitor discharge delay
+  digitalWrite(SCOPE_RX_MODE, HIGH);
+  Serial1.begin(DUT_BAUDRATE);
+
+  mCurrentMode = MODE_RX;
+  mStartCycleTime = mCurrentTime;
+  mConfiguring = false;
+}
+
+void configureRxToTxMode() {
+  mConfiguring = true;
+  digitalWrite(SCOPE_RX_MODE, LOW);
+
+  // Serial1.end();
+  RGB.color(255,255,255);
+  digitalWrite(CHG_CONTROL, LOW);
+  digitalWrite(RX_CONTROL, LOW);
+  delay(1);
+  digitalWrite(TX_CONTROL, HIGH);
+
+  mCurrentMode = MODE_RX_TO_TX;
   mStartCycleTime = mCurrentTime;
   mConfiguring = false;
 }
 
 void configureTxMode() {
   mConfiguring = true;
-
-  digitalWrite(RX_CONTROL, LOW);
-  digitalWrite(TX_CONTROL, HIGH);
+  // digitalWrite(SCOPE_TX_MODE, HIGH);
 
   RGB.color(0,128,255);
-  Serial1.begin(DUT_BAUDRATE);
-  delay(TX_GUARD_DELAY_MS);  // Capacitor discharge delay
+  // Serial1.begin(DUT_BAUDRATE);
+  delay(TX_GUARD_DELAY_MS);  // Guard delay
   digitalWrite(SCOPE_TX_MODE, HIGH);
 
   mCurrentMode = MODE_TX;
@@ -162,40 +190,13 @@ void configureTxMode() {
   mReadyToSend = true;
 }
 
-void configureTxToRxMode() {
+void configureTxToChgMode() {
   mConfiguring = true;
   digitalWrite(SCOPE_TX_MODE, LOW);
 
-  RGB.color(255,255,255);
-  digitalWrite(CHG_CONTROL, LOW);
-  digitalWrite(TX_CONTROL, LOW);
-  delay(1);
-  digitalWrite(RX_CONTROL, HIGH);
-
-  mCurrentMode = MODE_TX_TO_RX;
-  mStartCycleTime = mCurrentTime;
-  mConfiguring = false;
-}
-
-void configureRxMode() {
-  mConfiguring = true;
-
-  RGB.color(0,255,0);
-  digitalWrite(SCOPE_RX_MODE, HIGH);
-
-  mCurrentMode = MODE_RX;
-  mStartCycleTime = mCurrentTime;
-  mConfiguring = false;
-}
-
-void configureRxToChgMode() {
-  mConfiguring = true;
-
-  digitalWrite(SCOPE_RX_MODE, LOW);
   Serial1.end();
-  digitalWrite(RX_CONTROL, LOW);
-
-  mCurrentMode = MODE_RX_TO_CHG;
+  digitalWrite(TX_CONTROL, LOW);  // All relays low for Specs security feature
+  mCurrentMode = MODE_TX_TO_CHG;
   mStartCycleTime = mCurrentTime;
   mConfiguring = false;
 }
@@ -230,13 +231,18 @@ void loop()
     // }
   }
 
+  // while (Serial1.available() > 0) {
+  //   char rxChar = Serial1.read();
+  //   Serial.write(rxChar);
+  // }
+
   if (mConfiguring) return;
 
   switch (mCurrentMode) {
     case MODE_CHG:
     {
       if (mCurrentTime - mStartCycleTime > CHG_MODE_MS) {
-        configureChgToTxMode();
+        configureChgToRxMode();
         break;
       }
 
@@ -250,11 +256,11 @@ void loop()
       break;
     }
 
-    case MODE_CHG_TO_TX:
+    case MODE_CHG_TO_RX:
     {
       // Find out how long the charge disconnect interrupt time takes on Specs
       mInterruptTime = mCurrentTime - mStartCycleTime;
-      if (mInterruptTime > CHG_TO_TX_MODE_MS) {
+      if (mInterruptTime > CHG_TO_RX_MODE_MS) {
         // Timer timeout for pre-Rx mode; go back to charge mode after delay
         resetToChgMode();
         break;
@@ -262,32 +268,6 @@ void loop()
 
       // Use UART_RX low to synchronize time between the DUCC and Specs
       if (digitalRead(UART_RX) == LOW) {
-        configureTxMode();
-        break;
-      }
-      break;
-    }
-
-    case MODE_TX:
-    {
-      if (mCurrentTime - mStartCycleTime + mInterruptTime > TX_MODE_MS) {
-        configureTxToRxMode();
-        break;
-      }
-      if (mReadyToSend) {
-        while(!mTxFifo.isEmpty()) {
-          char txChar;
-          mTxFifo.pull(&txChar);
-          Serial1.write(txChar);
-        }
-        mReadyToSend = false;
-      }
-      break;
-    }
-
-    case MODE_TX_TO_RX:
-    {
-      if (mCurrentTime - mStartCycleTime > TX_TO_RX_MODE_MS) {
         configureRxMode();
         break;
       }
@@ -296,8 +276,8 @@ void loop()
 
     case MODE_RX:
     {
-      if (mCurrentTime - mStartCycleTime > RX_MODE_MS) {
-        configureRxToChgMode();
+      if (mCurrentTime - mStartCycleTime + mInterruptTime > RX_MODE_MS) {
+        configureRxToTxMode();
         break;
       }
 
@@ -307,6 +287,7 @@ void loop()
         char rxChar = Serial1.read();
         // if (rxChar != NULL_CHAR) {
           mRxFifo.add(rxChar);
+          digitalWrite(CHG_LED, HIGH);
           if (mRxFifo.isFull()) {
             // Rx buffer is full, stop grabbing data from the Serial
             break;
@@ -321,9 +302,35 @@ void loop()
       break;
     }
 
-    case MODE_RX_TO_CHG:
+    case MODE_RX_TO_TX:
     {
-      if (mCurrentTime - mStartCycleTime > RX_TO_CHG_MODE_MS) {
+      if (mCurrentTime - mStartCycleTime > RX_TO_TX_MODE_MS) {
+        configureTxMode();
+        break;
+      }
+      break;
+    }
+
+    case MODE_TX:
+    {
+      if (mCurrentTime - mStartCycleTime > TX_MODE_MS) {
+        configureTxToChgMode();
+        break;
+      }
+      if (mReadyToSend) {
+        while(!mTxFifo.isEmpty()) {
+          char txChar;
+          mTxFifo.pull(&txChar);
+          Serial1.write(txChar);
+        }
+        mReadyToSend = false;
+      }
+      break;
+    }
+
+    case MODE_TX_TO_CHG:
+    {
+      if (mCurrentTime - mStartCycleTime > TX_TO_CHG_MODE_MS) {
         configureChgMode();
         break;
       }
