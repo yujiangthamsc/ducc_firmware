@@ -38,7 +38,7 @@ const int SCOPE_RX_MODE =       D5;
 const int SCOPE_CHG_MODE =      D6;
 
 // Internal delays
-const int TX_GUARD_DELAY_MS =   10;
+const int TX_GUARD_DELAY_MS =   20;
 const int RX_GUARD_DELAY_MS =   20;
 
 // Mode timing
@@ -119,7 +119,7 @@ void configureChgMode() {
   digitalWrite(SCOPE_CHG_MODE, HIGH);
 
   Serial1.end();
-  RGB.color(255,0,0);
+  RGB.color(0,0,255);
   digitalWrite(TX_CONTROL, LOW);
   digitalWrite(RX_CONTROL, LOW);
   delay(1);
